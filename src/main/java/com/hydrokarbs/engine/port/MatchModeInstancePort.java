@@ -1,0 +1,63 @@
+package com.hydrokarbs.engine.port;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.hydrokarbs.engine.AttributeBag;
+import com.hydrokarbs.engine.instance.Participant;
+import com.hydrokarbs.engine.session.EndResult;
+import com.hydrokarbs.engine.session.Handoff;
+import com.hydrokarbs.engine.session.HandoffView;
+import com.hydrokarbs.engine.session.MatchModeConfig;
+import com.hydrokarbs.engine.session.MatchModeSelection;
+import com.hydrokarbs.engine.event.MatchModeInstanceEventPort;
+import com.hydrokarbs.map.MapDefinition;
+
+/**
+ * 实例自面:框架「基础端口」的落点(02-核心概念 §2.5;结束/切换都从这里走)。
+ *
+ * <p>实现体是 1.3 的实例容器(self 端口组,捕获容器自身)。本阶段只定义签名,
+ * 签名写偏则 1.3/1.5 全线返工——与设计案 §2.5 逐字对照。
+ *
+ * <p>★v4 的 {@code session()}(所属会话的只读视图)不在本子阶段签名清单
+ * (会话级组件层的五个类型归 2.6 施工):届时不改既有签名、只增该方法。
+ */
+public interface MatchModeInstancePort {
+
+    /** 本实例的参赛者快照(声明序无关;返回不可变列表)。 */
+    List<Participant> participants();
+
+    /** 按 uuid 取参赛者;不在本实例返回 empty。 */
+    Optional<Participant> participant(UUID uuid);
+
+    /** 实例已存活 tick 数。 */
+    long tick();
+
+    /** 实例级键值袋(命名空间 = 组件 id,§2.7)。 */
+    AttributeBag attrs();
+
+    /** 入口交接载荷(只读)。 */
+    HandoffView handoff();
+
+    /** 本次运行的地图。 */
+    MapDefinition map();
+
+    /** 本次运行的模式参数(只读配置视图)。 */
+    MatchModeConfig cfg();
+
+    /** 实例事件端口:发布 / 订阅(订阅随组件 stop 自动回收)。 */
+    MatchModeInstanceEventPort events();
+
+    /** 延迟任务(句柄登记到发起组件名下,stop 自动取消)。 */
+    void later(int delayTicks, Runnable task);
+
+    /**
+     * ★ 请求本实例结束。实例进入 ENDING,ticker 下一 tick 处置(不立即清场,§3.1)。
+     * 结束是组件的主动声明,不被框架轮询。
+     */
+    void end(EndResult result);
+
+    /** ★ 请求模式切换(等价会话服务切换方法的组件侧口;受最短驻留/重入约束)。 */
+    void switchTo(MatchModeSelection target, Handoff payload);
+}

@@ -1,0 +1,17 @@
+name: Hydrokarbs
+version: '${version}'
+main: com.hydrokarbs.HydrokarbsPlugin
+paper-plugin-loader: com.hydrokarbs.HydrokarbsPluginLoader
+bootstrapper: com.hydrokarbs.Bootstrapper
+api-version: '1.21.11'
+load: POSTWORLD          # 需要世界已加载才能解析地图坐标
+
+# softdepend:框架基线无(宿主扩展线依赖由 Shdf 侧施工阶段引入)
+
+authors: [ HueZhandouji ]
+
+commands:
+  hydrocarbs:
+    description: "多模式小游戏框架主命令"
+    usage: "/sm <join|leave|switch|session|mode|map|stats|reload|debug>"
+    aliases: [sm]

@@ -1,0 +1,55 @@
+package com.hydrokarbs.engine.instance;
+
+import java.util.Objects;
+import java.util.UUID;
+
+import com.hydrokarbs.engine.AttributeBag;
+
+/**
+ * 参赛者:会话成员在某次模式实例内的视图(uuid、生命周期标记、实例属性袋,
+ * 02-核心概念 §2.2-Participant 行)。
+ *
+ * <p>★ 玩法语义字段(分组/职能等)不在参赛者上——那些状态归组件所有,
+ * 经组件强类型读口查询。{@link ParticipantState#JOINING} 是设计案点名的
+ * 初始标记(名册原地位移时全体成员就地成为参赛者,§3.2-B4);
+ * 其余值为最小可用集,阶段 2/4 扩充。
+ */
+public final class Participant {
+
+    /** 参赛者生命周期标记(实例概念;会话名册上没有这些)。 */
+    public enum ParticipantState {
+        /** 名册位移后的初始标记(入场安置进行中)。 */
+        JOINING,
+        /** 完成入场安置。 */
+        ACTIVE,
+        /** 已离开本实例。 */
+        LEFT
+    }
+
+    private final UUID uuid;
+    private final ParticipantState state;
+    private final AttributeBag attrs = new AttributeBag();
+
+    /** 便捷构造:初始标记 JOINING。 */
+    public Participant(UUID uuid) {
+        this(uuid, ParticipantState.JOINING);
+    }
+
+    public Participant(UUID uuid, ParticipantState state) {
+        this.uuid = Objects.requireNonNull(uuid, "uuid");
+        this.state = Objects.requireNonNull(state, "state");
+    }
+
+    public UUID uuid() {
+        return uuid;
+    }
+
+    public ParticipantState state() {
+        return state;
+    }
+
+    /** 实例级键值袋(命名空间 = 组件 id;随实例 close 整体销毁)。 */
+    public AttributeBag attrs() {
+        return attrs;
+    }
+}
