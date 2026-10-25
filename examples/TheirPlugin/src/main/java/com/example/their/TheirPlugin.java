@@ -1,0 +1,279 @@
+package com.example.their;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+
+import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.Commands;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import com.hydrokarbs.api.EventSubscription;
+import com.hydrokarbs.api.MiniGameApi;
+import com.hydrokarbs.api.SessionComponentProvider;
+import com.hydrokarbs.api.SessionEventView;
+import com.hydrokarbs.api.SessionRecipe;
+import com.hydrokarbs.api.view.MapInfo;
+import com.hydrokarbs.api.view.SessionInfo;
+import com.hydrokarbs.engine.component.SessionComponent;
+import com.hydrokarbs.engine.mode.MatchModeProvider;
+import com.hydrokarbs.engine.session.JoinResult;
+import com.hydrokarbs.engine.session.LeaveReason;
+import com.hydrokarbs.map.MapDefinition;
+import com.hydrokarbs.map.SpawnPoint;
+
+/**
+ * 第三方消费样例插件(7.5 施工文档步骤 10;13-扩展步骤 §13.4/§13.10/§13.11 的
+ * 可运行落地版):真实消费 {@link MiniGameApi} v3 面——成员操作编排(D2)、
+ * 会话事件订阅(D3)、能力标签(D4)、SessionRecipe 单次建会话(D14 通道二)、
+ * 注册式地图(★v1.2;解包 → 构造声明 → registerMap,14.39),并演示
+ * 版本协商拒载(14.36)、句柄只在实例字段(14.38)与禁 shade 构建断言(14.35,
+ * 见 build.gradle.kts 的 {@code verifyNoFrameworkClasses} 任务)。
+ *
+ * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表):首行查版本 → 注册
+ * 模式工厂/会话组件提供方 → 解包模板 → 构造 MapDefinition → registerMap →
+ * 订阅事件 → 注册命令。
+ *
+ * <p><b>文本纪律(14.10)</b>:命令参数(会话 id/模式 id/标签)是玩家可控串,
+ * 一律 {@code Component.text(...)} 固定样式拼接——<b>不过 MiniMessage</b>,零注入面。
+ *
+ * <p><b>卸载善后(14.38/§13.11 步骤 6)</b>:订阅句柄 onDisable 显式 close;
+ * 注册式地图显式 unregisterMap(正用摘除被拒 = 保留并 WARN,20-D4);
+ * 能力标签/贡献/模式的框架侧兜底由 PluginDisableEvent 承担(D8,消费方无需自建)。
+ */
+public final class TheirPlugin extends JavaPlugin {
+
+    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服)。 */
+    static final int REQUIRED_API_VERSION = 3;
+    /** 注册式地图 id(模板随本 jar 分发;14.39 顺序的演示载体)。 */
+    static final String MAP_ID = "their_arena";
+    /** 模板资源根(jar 内路径;解包目标 = 框架数据目录 maps/templates/<id>/)。 */
+    private static final String TEMPLATE_RESOURCE_ROOT = "maps/templates/" + MAP_ID;
+    /** 根命令(自有命令树;plugin.yml 不写 commands: 段——Brigadier 注册)。 */
+    private static final String ROOT_COMMAND = "their";
+
+    private MiniGameApi api;
+    /** 订阅句柄只在插件实例字段中持有(14.38;onDisable 显式 close)。 */
+    private EventSubscription eventSubscription;
+
+    @Override
+    public void onEnable() {
+        api = getServer().getServicesManager().load(MiniGameApi.class);
+        if (shouldDisable(api == null ? null : Integer.valueOf(api.API_VERSION),
+                REQUIRED_API_VERSION)) {
+            getLogger().severe("Hydrokarbs 缺席或 API_VERSION 过低(要求 >= "
+                    + REQUIRED_API_VERSION + "),禁用 " + getName());
+            setEnabled(false);
+            return;
+        }
+        // 注册工厂/提供方,不是注册成品(§13.4 步骤 2;D14 通道一注册,07 §7.3)
+        getServer().getServicesManager().register(
+                MatchModeProvider.class, new TheirModeFactory(), this, ServicePriority.Normal);
+        getServer().getServicesManager().register(
+                SessionComponentProvider.class, new TheirComponentProvider(), this,
+                ServicePriority.Normal);
+        registerTheirArenaMap();            // ★v1.2:解包 → 构造声明 → registerMap(14.39)
+        subscribeSessionEvents();           // D3:句柄存实例字段
+        registerCommands();                 // 自有 Brigadier 命令树
+        getLogger().info("TheirPlugin enabled: API_VERSION=" + api.API_VERSION
+                + "(消费样例:成员/事件/能力/recipe/注册式地图)");
+    }
+
+    @Override
+    public void onDisable() {
+        if (eventSubscription != null) {                 // 句柄显式回收(14.38)
+            eventSubscription.close();
+            eventSubscription = null;
+        }
+        if (api != null) {
+            try {
+                api.unregisterMap(this, MAP_ID);          // §13.11 步骤 6(正用被拒 = 保留)
+            } catch (RuntimeException refused) {
+                getLogger().warning("卸载摘除注册式地图被拒(正用保留,20-D4): "
+                        + refused.getMessage());
+            }
+        }
+        api = null;
+    }
+
+    /** 版本协商判定(静态便于测试源集直测;apiVersion 为 null = api 缺席)。 */
+    static boolean shouldDisable(Integer apiVersion, int required) {
+        return apiVersion == null || apiVersion < required;
+    }
+
+    // ── D3:会话事件订阅(快照消费演示;句柄存实例字段) ──────────────────
+
+    private void subscribeSessionEvents() {
+        eventSubscription = api.subscribeSessionEvents(this::onSessionEvent);
+    }
+
+    /** 快照消费:只读、现取、不持活引用(14.31 同款禁令;看板粒度止于会话级,§13.10 例二)。 */
+    private void onSessionEvent(SessionEventView view) {
+        if (view instanceof SessionEventView.Dissolved dissolved) {
+            getLogger().info("[看板] 会话解散: " + dissolved.session().value()
+                    + "(原因 " + dissolved.reason() + ")");
+        } else if (view instanceof SessionEventView.ModeSwitchCompleted completed) {
+            getLogger().info("[看板] 切换完成: " + completed.session().value()
+                    + " " + completed.from() + " → " + completed.to());
+        }
+    }
+
+    // ── ★v1.2:注册式地图(onEnable 顺序 = 解包 → 构造 → registerMap,14.39) ──
+
+    private void registerTheirArenaMap() {
+        Plugin framework = getServer().getPluginManager().getPlugin("Hydrokarbs");
+        if (framework == null) {
+            throw new IllegalStateException("Hydrokarbs 缺席(depend 已声明,不应发生)");
+        }
+        // ① 解包模板落盘(20-D2:解析以框架数据目录 maps/templates/<mapId>/ 约定为准)
+        Path templateRoot = framework.getDataFolder().toPath()
+                .resolve("maps").resolve("templates");
+        extractTemplate(TEMPLATE_RESOURCE_ROOT + "/level.properties",
+                templateRoot.resolve(MAP_ID).resolve("level.properties"));
+        extractTemplate(TEMPLATE_RESOURCE_ROOT + "/region/placeholder.txt",
+                templateRoot.resolve(MAP_ID).resolve("region").resolve("placeholder.txt"));
+        // ② 构造声明(纯静态值,代码构造合法——13 §13.11 步骤 3;声明走 yml 亦可)
+        MapDefinition map = new MapDefinition(MAP_ID, "their_arena_world", Set.of("demo"),
+                Map.of("spawn", List.of(new SpawnPoint(0.5, 64.0, 0.5, 0f))));
+        // ③ 注册(注册期校验:id 查重点名先到者/tags/模板目录存在性——缺失响亮抛,20-D3;
+        //    本样例按设计让异常上抛 = 拒载信号,onEnable 失败即插件禁用)
+        MapInfo info = api.registerMap(this, map);
+        getLogger().info("注册式地图已登记: " + info.id() + "(maps() 可见,可被 switchMode 选中)");
+    }
+
+    /** 单文件解包(目标 = 框架数据目录;幂等覆盖,重复 enable 安全)。 */
+    private void extractTemplate(String resourcePath, Path target) {
+        InputStream source = getResource(resourcePath);
+        if (source == null) {
+            throw new IllegalStateException("模板资源缺席: " + resourcePath
+                    + "(14.39:解包先于注册,资源必须随 jar 分发)");
+        }
+        try (source) {
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("模板解包失败: " + resourcePath + " → " + target, e);
+        }
+    }
+
+    // ── 自有 Brigadier 命令树(/their;演示 D2/D3/D4/D14 面) ──────────────
+
+    private void registerCommands() {
+        getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
+            LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(ROOT_COMMAND)
+                    .requires(source -> source.getSender() instanceof Player)
+                    .then(Commands.literal("join")
+                            .then(Commands.argument("sessionId", StringArgumentType.string())
+                                    .executes(ctx -> joinCommand(ctx,
+                                            StringArgumentType.getString(ctx, "sessionId")))))
+                    .then(Commands.literal("leave")
+                            .executes(this::leaveCommand))
+                    .then(Commands.literal("capability")
+                            .then(Commands.argument("tag", StringArgumentType.word())
+                                    .executes(ctx -> capabilityCommand(ctx,
+                                            StringArgumentType.getString(ctx, "tag")))))
+                    .then(Commands.literal("recipe")
+                            .then(Commands.argument("modeId", StringArgumentType.word())
+                                    .executes(ctx -> recipeCommand(ctx,
+                                            StringArgumentType.getString(ctx, "modeId"), null))
+                                    .then(Commands.argument("mapId", StringArgumentType.word())
+                                            .executes(ctx -> recipeCommand(ctx,
+                                                    StringArgumentType.getString(ctx, "modeId"),
+                                                    StringArgumentType.getString(ctx, "mapId"))))))
+                    .then(Commands.literal("events")
+                            .executes(this::toggleEventsCommand));
+            event.registrar().register(root.build(),
+                    "TheirPlugin 消费样例:join/leave/capability/recipe/events", List.of("theirp"));
+        });
+    }
+
+    /** D2 编排:先出局(hub 出局,幂等;LeaveReason 仅 QUIT/KICK 两值,§3.2)再入局(含裁决;Rejected 就地提示,§7.5 示例一)。 */
+    private int joinCommand(CommandContext<CommandSourceStack> ctx, String sessionId) {
+        Player player = (Player) ctx.getSource().getSender();
+        api.leaveSession(player.getUniqueId(), LeaveReason.KICK);
+        JoinResult result = api.joinSession(sessionId, player.getUniqueId());
+        if (result instanceof JoinResult.Rejected rejected) {
+            player.sendMessage(Component.text("入场被拒: " + rejected.detail(), NamedTextColor.RED));
+            return 0;
+        }
+        player.sendMessage(Component.text("已入会话 " + sessionId, NamedTextColor.GREEN));
+        return 1;
+    }
+
+    /** D2:出局(幂等,不在会话 = no-op)。 */
+    private int leaveCommand(CommandContext<CommandSourceStack> ctx) {
+        Player player = (Player) ctx.getSource().getSender();
+        api.leaveSession(player.getUniqueId(), LeaveReason.KICK);
+        player.sendMessage(Component.text("已移出当前会话(若在)", NamedTextColor.GREEN));
+        return 1;
+    }
+
+    /** D4:注册能力标签(提供方 = 本插件;disable 自动摘除由框架兜底)。 */
+    private int capabilityCommand(CommandContext<CommandSourceStack> ctx, String tag) {
+        Player player = (Player) ctx.getSource().getSender();
+        api.registerCapability(this, tag);
+        player.sendMessage(Component.text("能力标签已注册: " + tag, NamedTextColor.GREEN));
+        return 1;
+    }
+
+    /** D14 通道二:SessionRecipe 单次建会话(查重/缺依赖响亮拒,装配期失败就地提示)。 */
+    private int recipeCommand(CommandContext<CommandSourceStack> ctx, String modeId, String mapId) {
+        Player player = (Player) ctx.getSource().getSender();
+        try {
+            SessionInfo info = api.createSession(SessionRecipe.of(modeId, mapId));
+            player.sendMessage(Component.text("会话已创建: " + info.sessionId()
+                    + "(随 dissolve 全灭;D14 通道二)", NamedTextColor.GREEN));
+            return 1;
+        } catch (RuntimeException rejected) {
+            player.sendMessage(Component.text("建会话被拒(响亮失败): " + rejected.getMessage(),
+                    NamedTextColor.RED));
+            return 0;
+        }
+    }
+
+    /** D3:订阅开关(演示句柄 close;快照消费见 onSessionEvent)。 */
+    private int toggleEventsCommand(CommandContext<CommandSourceStack> ctx) {
+        Player player = (Player) ctx.getSource().getSender();
+        if (eventSubscription != null) {
+            eventSubscription.close();
+            eventSubscription = null;
+            player.sendMessage(Component.text("事件订阅已关闭", NamedTextColor.YELLOW));
+        } else {
+            subscribeSessionEvents();
+            player.sendMessage(Component.text("事件订阅已开启", NamedTextColor.GREEN));
+        }
+        return 1;
+    }
+
+    /** D14 通道一:全局默认贡献(所有新会话合并;干跑校验失败框架拒收录、会话照常)。 */
+    static final class TheirComponentProvider implements SessionComponentProvider {
+
+        @Override
+        public List<SessionComponent.Specification<?>> sessionComponents() {
+            List<SessionComponent.Specification<?>> specs = new ArrayList<>();
+            specs.add(new TheirSessionComponent.Spec());
+            return specs;
+        }
+
+        @Override
+        public int requiredApiVersion() {
+            return REQUIRED_API_VERSION;
+        }
+    }
+}

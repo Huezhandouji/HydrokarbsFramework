@@ -12,10 +12,12 @@ import org.junit.jupiter.api.Test;
 
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.event.SessionEventBus;
+import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionService;
+import com.hydrokarbs.engine.session.SessionSpec;
 
 /**
  * 参照服务「上报式」离线单测(1.6 施工步骤 5;修正案 §1 参照实现行)。
@@ -34,7 +36,8 @@ class GlobalLedgerTest {
     /** 会话侧本地账本假件:会话 id → 账本。 */
     private final Map<SessionId, Map<String, Long>> ledgers = new HashMap<>();
 
-    private final SessionService sessions = () -> List.copyOf(alive);
+    /** 会话服务假件(2.3 接口扩为八方法后改用共享桩:只实现 all(),其余零行为)。 */
+    private final SessionService sessions = new com.hydrokarbs.testkit.StubSessionService(() -> List.copyOf(alive));
 
     private final GlobalLedger ledger =
             new GlobalLedger(bus, sessions, ledgers::get);
@@ -44,7 +47,8 @@ class GlobalLedgerTest {
     }
 
     private static Session session(String value) {
-        return new Session(id(value), new SessionRoster(List.of()));
+        return new Session(new SessionSpec(id(value), "ledger-probe", java.util.List.of()),
+                SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
     }
 
     /** 上报通道:收 SessionDissolved → 终局账本并入总账(多会话累加)。 */
@@ -52,11 +56,11 @@ class GlobalLedgerTest {
     void dissolvedSessionFinalLedgerMergesIntoTotal() {
         ledger.start();
         ledgers.put(id("s1"), Map.of("wins", 3L));
-        bus.publish(new SessionEvent.SessionDissolved(id("s1")));
+        bus.publish(SessionEvent.SessionDissolved.of(id("s1"), DissolveReason.SHUTDOWN));
         assertEquals(Map.of("wins", 3L), ledger.total());
 
         ledgers.put(id("s2"), Map.of("wins", 4L, "plays", 1L));
-        bus.publish(new SessionEvent.SessionDissolved(id("s2")));
+        bus.publish(SessionEvent.SessionDissolved.of(id("s2"), DissolveReason.SHUTDOWN));
         assertEquals(Map.of("wins", 7L, "plays", 1L), ledger.total(),
                 "第二个会话的终局账本并入并累加(总账只增)");
     }
@@ -87,7 +91,7 @@ class GlobalLedgerTest {
         alive.add(session("live"));
         ledgers.put(id("live"), Map.of("wins", 2L));
         ledger.start();
-        bus.publish(new SessionEvent.SessionDissolved(id("gone")));   // 终局入总账
+        bus.publish(SessionEvent.SessionDissolved.of(id("gone"), DissolveReason.SHUTDOWN));   // 终局入总账
         ledger.sweep();
 
         assertEquals(Map.of("wins", 7L), ledger.liveTotals(),
@@ -99,12 +103,12 @@ class GlobalLedgerTest {
     void stopUnsubscribesLateEvents() {
         ledger.start();
         ledgers.put(id("s1"), Map.of("wins", 1L));
-        bus.publish(new SessionEvent.SessionDissolved(id("s1")));
+        bus.publish(SessionEvent.SessionDissolved.of(id("s1"), DissolveReason.SHUTDOWN));
         assertEquals(Map.of("wins", 1L), ledger.total());
 
         ledger.stop();
         ledgers.put(id("s2"), Map.of("wins", 99L));
-        bus.publish(new SessionEvent.SessionDissolved(id("s2")));
+        bus.publish(SessionEvent.SessionDissolved.of(id("s2"), DissolveReason.SHUTDOWN));
         assertEquals(Map.of("wins", 1L), ledger.total(),
                 "stop 之后的迟到 SessionDissolved 不得并入总账(注销哨兵)");
         assertTrue(ledger.liveView().isEmpty(), "stop 清空实时视图(与 start 对称)");

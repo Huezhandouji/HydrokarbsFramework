@@ -111,7 +111,8 @@ class OfflineFullLifecycleTest {
 
         MatchMode mode = OfflineAssembly.mode("test_mode", specs);
         OfflineAssembly.RecordingSession session =
-                new OfflineAssembly.RecordingSession("s1", new SessionMember(UUID.randomUUID(), true, 1L));
+                new OfflineAssembly.RecordingSession("s1",
+                        new SessionMember(UUID.randomUUID(), SessionMember.ConnectionStatus.ONLINE, 1L));
         OfflineAssembly.FakePlatform platform = new OfflineAssembly.FakePlatform();
         return new Assembly(OfflineAssembly.instance(mode, session, platform), session, platform, log);
     }

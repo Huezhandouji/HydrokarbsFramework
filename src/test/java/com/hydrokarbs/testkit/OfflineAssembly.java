@@ -18,7 +18,8 @@ import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionMember;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -36,14 +37,38 @@ public final class OfflineAssembly {
         return new MapDefinition("test_map", "test_world", java.util.Set.of(), Map.of());
     }
 
-    /** Map 背后的模式参数测试实现(缺路径回落 def)。 */
+    /** Map 背后的模式参数测试实现(缺路径回落 def;2.2 扩员后的具名假实现)。 */
     public static MatchModeConfig cfg(Map<String, Integer> values) {
-        return (path, def) -> values.getOrDefault(path, def);
+        return new MapConfig(values);
     }
 
     /** 全回落缺省的模式参数。 */
     public static MatchModeConfig cfg() {
-        return (path, def) -> def;
+        return new MapConfig(Map.of());
+    }
+
+    /** 整数表背后的最小配置视图(只实现取值族,keys 恒空——测试不消费节键)。 */
+    private record MapConfig(Map<String, Integer> values) implements MatchModeConfig {
+
+        @Override
+        public int getInt(String path, int def) {
+            return values.getOrDefault(path, def);
+        }
+
+        @Override
+        public String getString(String path, String def) {
+            return def;
+        }
+
+        @Override
+        public List<String> getStringList(String path, List<String> def) {
+            return def;
+        }
+
+        @Override
+        public List<String> keys(String section) {
+            return List.of();
+        }
     }
 
     /** 记录结束请求的会话测试桩(覆写非 final 方法)。 */
@@ -55,7 +80,11 @@ public final class OfflineAssembly {
         public final List<Map.Entry<MatchModeInstance, EndResult>> rawEndNotices = new ArrayList<>();
 
         public RecordingSession(String id, SessionMember... members) {
-            super(new SessionId(id), new SessionRoster(List.of(members)));
+            super(new SessionSpec(new SessionId(id), "recording-probe", List.of()),
+                    SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
+            for (SessionMember member : members) {
+                roster().join(member.uuid(), member.joinedAtMillis());
+            }
         }
 
         @Override

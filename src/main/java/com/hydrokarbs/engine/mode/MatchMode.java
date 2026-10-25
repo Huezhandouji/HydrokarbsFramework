@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
@@ -141,13 +142,19 @@ public final class MatchMode {
         return false;
     }
 
-    /** 装配条目:(工厂, 描述符类型, 提供类型, 必需依赖, 可选依赖) 的不可变快照。不持有描述符对象。 */
+    /**
+     * 装配条目:(工厂, 描述符类型, 提供类型, 必需依赖, 可选依赖, 地图适配检查) 的不可变快照。
+     * 不持有描述符对象的可变状态——地图适配检查以 {@code spec::checkMap} 方法引用捕获
+     * (freeze 后描述符声明面已拒改,行为稳定),切换准备阶段 A3 逐条消费
+     * (03-会话与模式切换 §3.2-A3:对全组件表逐个调用,任何非空返回 → 切换被拒)。
+     */
     public record ComponentEntry(
             MatchModeComponent.Factory<? extends MatchModeComponent> factory,
             Class<?> descriptorType,
             Class<? extends MatchModeComponent> providedType,
             List<Class<? extends MatchModeComponent>> requiredTypes,
-            List<Class<? extends MatchModeComponent>> optionalTypes) {
+            List<Class<? extends MatchModeComponent>> optionalTypes,
+            BiFunction<MapDefinition, MatchModeConfig, List<String>> mapCheck) {
     }
 
     /** 聚合根 Builder:唯一装配入口(声明序 = 入表序)。 */
@@ -212,7 +219,8 @@ public final class MatchMode {
                     spec.getClass(),
                     snapshot.providedType(),
                     snapshot.requiredTypes(),
-                    snapshot.optionalTypes()));
+                    snapshot.optionalTypes(),
+                    spec::checkMap));
             return this;
         }
 

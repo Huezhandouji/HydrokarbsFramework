@@ -23,9 +23,14 @@ import com.hydrokarbs.engine.event.MatchModeInstanceEventPort;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.port.EngineServices;
+import com.hydrokarbs.engine.port.JoinAdmission;
+import com.hydrokarbs.engine.port.JoinContext;
+import com.hydrokarbs.engine.port.JoinDecision;
 import com.hydrokarbs.engine.port.MatchModeInstancePort;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 import com.hydrokarbs.engine.port.MatchModeInfoPort;
+import com.hydrokarbs.engine.port.MatchModeInstanceAccess;
+import com.hydrokarbs.engine.port.SessionView;
 import com.hydrokarbs.engine.port.WorldHandle;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
@@ -33,6 +38,8 @@ import com.hydrokarbs.engine.session.HandoffView;
 import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.MatchModeSelection;
 import com.hydrokarbs.engine.session.Session;
+import com.hydrokarbs.engine.session.SessionMember;
+import com.hydrokarbs.engine.session.TransitionIntent;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -107,20 +114,103 @@ public final class MatchModeInstance implements AutoCloseable {
         for (MatchModeComponent component : components.inDeclarationOrder()) {
             bus.subscribe(MatchModeInstanceEvent.class, component::onEvent);
         }
+        // 授权表灌入:组件全部装配完成后,把 (id → 类) 对灌进实例袋——
+        // 命名空间断言的授权表由此而来,容器是唯一合法灌表方。
+        bindAuthorized(attrs);
     }
 
-    // ── 二段生效(调用方:阶段 2 的切换执行段;离线测试同包直调) ─────────
+    // ── 二段生效(调用方:会话服务的切换执行段 B4;2.3 起跨包调用,提 public) ────
 
     /** 装配段:声明序逐组件 awake——只解析依赖,玩家不可见。 */
-    void awakeAll() {
+    public void awakeAll() {
         components.inDeclarationOrder().forEach(MatchModeComponent::awake);
     }
 
-    /** 生效段:名册原地位移 → 声明序逐组件 start → 发布实例启动事件。 */
-    void startAll() {
-        participants.putAll(session.roster().toParticipants());    // 名册原地位移(§3.2-B4)
+    /**
+     * 生效段:名册原地位移(经入场裁决触发点①)→ 声明序逐组件 start → 发布实例启动事件。
+     *
+     * <p>★v3.2 触发点①(03-会话与模式切换 §3.2.1):成员成为参赛者之前逐人经
+     * {@link JoinAdmission} 裁决——按组件声明序取第一个实现者,无实现者默认 ADMIT;
+     * REJECT 的成员留在会话名册、不进本实例(成员仍有所属会话,只是本局不上场);
+     * ADMIT/SPECTATE 都成为参赛者,观战位的安置体验归组件层。
+     */
+    public void startAll() {
+        JoinAdmission gate = joinGate();
+        JoinContext ctx = new JoinContext(JoinContext.Trigger.INITIAL_PLACEMENT, session.id());
+        for (SessionMember member : session.roster().all()) {
+            JoinDecision decision = gate != null
+                    ? gate.admit(member.uuid(), ctx)
+                    : new JoinDecision(JoinDecision.Kind.ADMIT, null);   // 无实现者默认 ADMIT
+            if (decision.kind() == JoinDecision.Kind.REJECT) {
+                continue;                       // 本局不上场:名册保留,不进参赛者表
+            }
+            participants.put(member.uuid(), new Participant(member.uuid()));   // 名册原地位移
+        }
+        // 参赛者袋由名册在容器外创建,容器放置参赛者时统一补灌同一份授权表
+        // (组件最早的触达点是随后的 start,灌表先于一切组件可写路径)。
+        participants.values().forEach(participant -> bindAuthorized(participant.attrs()));
         components.inDeclarationOrder().forEach(MatchModeComponent::start);
         bus.publish(new MatchModeInstanceEvent.MatchModeInstanceStarted(clock.tick(), clock.occurredAtMillis()));
+    }
+
+    // ── 装配期灌表(命名空间授权表的唯一合法来源) ───────────────────
+
+    /**
+     * 遍历组件注册表既有读口(声明序快照),把 (组件 id → 组件类) 灌入指定袋的
+     * 授权表——实例袋与各参赛者袋共用本口,灌表逻辑不散落多处。
+     */
+    private void bindAuthorized(AttributeBag bag) {
+        for (MatchModeComponent component : components.inDeclarationOrder()) {
+            bag.bindComponent(component.id(), component.getClass());
+        }
+    }
+
+    // ── 切换配合口(2.3:会话服务切换阶段 B1/B4 与 join 触发点②的落点) ────────
+
+    /**
+     * 交接出局(切换阶段 B1):按声明序逐组件 {@code onHandoff(Builder)}——
+     * 组件状态尚完整,但只准写交接载荷、不准碰世界/玩家。收拢各组件写入后返回载荷。
+     */
+    public Handoff dispatchHandoff() {
+        Handoff.Builder out = new Handoff.Builder();
+        components.inDeclarationOrder().forEach(component -> component.onHandoff(out));
+        return out.build();
+    }
+
+    /**
+     * 入场裁决口:按组件声明序取第一个 {@link JoinAdmission} 实现者;
+     * 无实现者返回 null(调用方按默认 ADMIT 处置,§3.2.1 触发点表)。
+     */
+    public JoinAdmission joinGate() {
+        for (MatchModeComponent component : components.inDeclarationOrder()) {
+            if (component instanceof JoinAdmission gate) {
+                return gate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 运行中加入的入册口(join 触发点②的实例侧落点,§3.2.1):
+     * 名册登记后由会话服务调用——参赛者入册并发结构事件。
+     * 已在册为幂等 no-op(返回既有参赛者)。
+     */
+    public Participant admitParticipant(UUID uuid) {
+        Objects.requireNonNull(uuid, "uuid");
+        Participant existing = participants.get(uuid);
+        if (existing != null) {
+            return existing;
+        }
+        Participant fresh = new Participant(uuid);
+        bindAuthorized(fresh.attrs());            // 与初始摆放同一授权表口径
+        participants.put(uuid, fresh);
+        bus.publish(new MatchModeInstanceEvent.ParticipantJoined(clock.tick(), clock.occurredAtMillis(), uuid));
+        return fresh;
+    }
+
+    /** 本实例运行的模式 id(会话侧事件载荷与回退诊断用;2.3 增)。 */
+    public String modeId() {
+        return mode.id();
     }
 
     // ── 驱动与收口 ────────────────────────────────────────────────
@@ -212,6 +302,15 @@ public final class MatchModeInstance implements AutoCloseable {
         return self;
     }
 
+    /**
+     * 会话侧只读实例面(★v4-D5):{@code SessionPort#currentInstance()} 的元素——
+     * 会话级组件经它读当前实例运行数据。每次调用<b>现取</b>(调用方不得缓存引用
+     * 越过切换,14.27);无写口(只读是架构纪律 + review 条款,14.29)。
+     */
+    public MatchModeInstanceAccess access() {
+        return new AccessView();
+    }
+
     /** 按类型取第一个可赋值组件(容器直读口,§12.2 监听器的 {@code i.component(X.class)} 用法)。 */
     public <T extends MatchModeComponent> T component(Class<T> type) {
         return components.get(type);
@@ -220,6 +319,16 @@ public final class MatchModeInstance implements AutoCloseable {
     /** 入口交接载荷(只读视图)。 */
     public HandoffView handoff() {
         return handoff;
+    }
+
+    /** 本实例的参赛者快照(2.3 增:名册位移链路断言与会话侧只读消费;不可变列表)。 */
+    public List<Participant> participants() {
+        return List.copyOf(participants.values());
+    }
+
+    /** 按 uuid 取参赛者;不在本实例返回 empty。 */
+    public Optional<Participant> participant(UUID uuid) {
+        return Optional.ofNullable(participants.get(uuid));
     }
 
     // ── 内部实现体:self 端口组(含只读读口)与模式信息面 ───────────────
@@ -282,7 +391,10 @@ public final class MatchModeInstance implements AutoCloseable {
 
         @Override
         public void switchTo(MatchModeSelection target, Handoff payload) {
-            // 阶段 2 接线:转发到会话切换(本阶段切换实现不存在,留空)
+            // 2.3 接线:切换请求走「结束 + 显式去向」——与结束判定组件的主动声明同一通道
+            // (§3.2 三个触发入口殊途同归到会话切换一个方法;请求只置位,处置由节拍器
+            // 下一 tick 驱动,切换永远不发生在事件派发栈内,§3.1/§16.4-三律①)。
+            requestEnd(new EndResult(Optional.of(new TransitionIntent(target, payload))));
         }
 
         // ── MatchModeInstanceView ──
@@ -298,8 +410,57 @@ public final class MatchModeInstance implements AutoCloseable {
         }
 
         @Override
-        public Session session() {
-            return session;
+        public SessionView session() {
+            // ★v4-D5:实例侧只读会话视图(同一方法双满足 MatchModeInstancePort#session()
+            // 与本只读读口;原裸 Session 返回在 2.6 收窄,阶段1 已知问题 4 消除)
+            return session.view();
+        }
+    }
+
+    /**
+     * 会话侧只读实例面(★v4-D5)的实现体:委托容器自身字段与组件注册表;
+     * 只读约定(仅 get/无写口)是架构纪律 + review 条款(14.29)。
+     */
+    private final class AccessView implements MatchModeInstanceAccess {
+
+        @Override
+        public MatchModeInstanceId id() {
+            return id;
+        }
+
+        @Override
+        public String modeId() {
+            return mode.id();
+        }
+
+        @Override
+        public long tick() {
+            return clock.currentTick();
+        }
+
+        @Override
+        public List<Participant> participants() {
+            return List.copyOf(participants.values());
+        }
+
+        @Override
+        public MatchModeInfoPort modeInfo() {
+            return svc.modeInfo();
+        }
+
+        @Override
+        public AttributeBag attrs() {
+            return attrs;
+        }
+
+        @Override
+        public <T extends MatchModeComponent> T component(Class<T> type) {
+            return components.get(type);
+        }
+
+        @Override
+        public <T extends MatchModeComponent> List<T> components(Class<T> type) {
+            return components.getAll(type);
         }
     }
 

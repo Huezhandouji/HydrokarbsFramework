@@ -27,8 +27,8 @@ import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
-import com.hydrokarbs.engine.session.SessionMember;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -37,6 +37,31 @@ import com.hydrokarbs.map.MapDefinition;
  * (逆序且异常不中断)。
  */
 class CleanupResilienceTest {
+
+    /** 全回落缺省配置(2.2 接口扩员后的具名假实现)。 */
+    private static final class FallbackConfig implements MatchModeConfig {
+
+        @Override
+        public int getInt(String path, int def) {
+            return def;
+        }
+
+        @Override
+        public String getString(String path, String def) {
+            return def;
+        }
+
+        @Override
+        public List<String> getStringList(String path, List<String> def) {
+            return def;
+        }
+
+        @Override
+        public List<String> keys(String section) {
+            return List.of();
+        }
+    }
+
 
     /** 收集 WARN 及以上日志的假 Handler。 */
     static final class CapturingHandler extends Handler {
@@ -139,11 +164,13 @@ class CleanupResilienceTest {
         builder.addComponent("c3", new ProbeSpec(log, null));
         MatchMode mode = builder.build();
 
-        Session session = new Session(new SessionId("s1"),
-                new SessionRoster(List.of(new SessionMember(UUID.randomUUID(), true, 1L))));
+        Session session = new Session(
+                new SessionSpec(new SessionId("s1"), "cleanup-probe", List.of()),
+                SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
+        session.roster().join(UUID.randomUUID(), 1L);
         MatchModeInstance instance = mode.createInstance(session,
                 new MapDefinition("map1", "world1", Set.of(), Map.of()),
-                (path, def) -> def, null, Handoff.empty(), new EngineServices(new NullPlatform()));
+                new FallbackConfig(), null, Handoff.empty(), new EngineServices(new NullPlatform()));
 
         instance.awakeAll();
         instance.startAll();

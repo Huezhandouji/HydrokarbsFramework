@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.event.SessionEventBus;
+import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.SessionId;
 
 /**
@@ -31,15 +32,15 @@ class GlobalBoardTest {
     @Test
     void boardTracksLiveSessionsThroughLifecycleEvents() {
         board.start();
-        bus.publish(new SessionEvent.SessionCreated(id("s1")));
-        bus.publish(new SessionEvent.SessionCreated(id("s2")));
+        bus.publish(SessionEvent.SessionCreated.of(id("s1"), "alpha"));
+        bus.publish(SessionEvent.SessionCreated.of(id("s2"), "alpha"));
         assertEquals(java.util.Set.of(id("s1"), id("s2")), board.liveSessions());
 
-        bus.publish(new SessionEvent.ModeSwitchCompleted(id("s1"), "alpha", "beta"));
+        bus.publish(SessionEvent.ModeSwitchCompleted.of(id("s1"), "alpha", "beta"));
         assertEquals(Map.of(id("s1"), "beta", id("s2"), ""), board.currentModes(),
                 "切换完成事件更新该会话的当前模式;未收到切换的会话保持空串");
 
-        bus.publish(new SessionEvent.SessionDissolved(id("s2")));
+        bus.publish(SessionEvent.SessionDissolved.of(id("s2"), DissolveReason.ADMIN));
         assertEquals(java.util.Set.of(id("s1")), board.liveSessions(), "解散除名");
         assertEquals("beta", board.modeOf(id("s1")).orElseThrow());
         assertTrue(board.modeOf(id("s2")).isEmpty(), "已解散会话的查询 → empty");
@@ -49,13 +50,13 @@ class GlobalBoardTest {
     @Test
     void viewIsReadonlySnapshotCopy() {
         board.start();
-        bus.publish(new SessionEvent.SessionCreated(id("s1")));
+        bus.publish(SessionEvent.SessionCreated.of(id("s1"), "alpha"));
         Map<SessionId, String> view = board.currentModes();
         assertThrows(UnsupportedOperationException.class,
                 () -> view.put(id("s9"), "rogue"),
                 "currentModes() 返回不可变快照拷贝");
 
-        bus.publish(new SessionEvent.ModeSwitchCompleted(id("s1"), "alpha", "beta"));
+        bus.publish(SessionEvent.ModeSwitchCompleted.of(id("s1"), "alpha", "beta"));
         assertEquals("", view.get(id("s1")),
                 "外部持有的旧快照不受后续事件影响(现取快照语义)");
         assertEquals("beta", board.currentModes().get(id("s1")));
@@ -65,12 +66,12 @@ class GlobalBoardTest {
     @Test
     void stopClearsViewAndIgnoresLateEvents() {
         board.start();
-        bus.publish(new SessionEvent.SessionCreated(id("s1")));
+        bus.publish(SessionEvent.SessionCreated.of(id("s1"), "alpha"));
         board.stop();
 
         assertTrue(board.liveSessions().isEmpty(), "stop 清空视图(与 start 对称)");
-        bus.publish(new SessionEvent.SessionCreated(id("s2")));
-        bus.publish(new SessionEvent.ModeSwitchCompleted(id("s2"), "alpha", "beta"));
+        bus.publish(SessionEvent.SessionCreated.of(id("s2"), "alpha"));
+        bus.publish(SessionEvent.ModeSwitchCompleted.of(id("s2"), "alpha", "beta"));
         assertTrue(board.liveSessions().isEmpty(),
                 "stop 之后的迟到事件不得写入视图(注销哨兵)");
     }

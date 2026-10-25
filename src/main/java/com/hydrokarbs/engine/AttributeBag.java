@@ -97,8 +97,14 @@ public final class AttributeBag {
         values.put(key, value);
     }
 
-    /** 包内登记:容器装配完组件后灌入 (组件 id → 组件类),供命名空间断言反查。 */
-    void bindComponent(String componentId, Class<?> componentType) {
+    // ── 装配期登记口(公开面只对容器) ─────────────────────────────
+
+    /**
+     * 公开登记口:仅限实例/会话容器在装配期调用——组件装配完成后灌入
+     * (组件 id → 组件类)授权表,供 {@link #set} 的命名空间断言反查;
+     * 业务代码禁止调用。
+     */
+    public void bindComponent(String componentId, Class<?> componentType) {
         componentTypes.put(componentId, componentType);
     }
 

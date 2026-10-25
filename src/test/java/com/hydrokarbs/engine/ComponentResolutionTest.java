@@ -26,7 +26,8 @@ import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -126,9 +127,10 @@ class ComponentResolutionTest {
 
     private static MatchModeInstance create(MatchMode mode) {
         return mode.createInstance(
-                new Session(new SessionId("s1"), new SessionRoster(List.of())),
+                new Session(new SessionSpec(new SessionId("s1"), "resolve-probe", List.of()),
+                        SessionPolicy.defaults(SessionPolicy.Topology.ROTATION)),
                 new MapDefinition("map1", "world1", Set.of(), Map.of()),
-                (path, def) -> def,
+                com.hydrokarbs.testkit.OfflineAssembly.cfg(),
                 null,
                 Handoff.empty(),
                 new com.hydrokarbs.engine.port.EngineServices(new NullPlatform()));

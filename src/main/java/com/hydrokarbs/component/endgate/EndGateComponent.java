@@ -11,7 +11,7 @@ import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeConfig;
-import com.hydrokarbs.engine.session.Session;
+import com.hydrokarbs.engine.port.SessionView;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -24,8 +24,8 @@ import com.hydrokarbs.map.MapDefinition;
  * <p>★ 不加防抖/冷却之类的自创逻辑——切换风暴防护是会话层最短驻留的事
  * (§3.5,阶段 2)。重复 end 由容器的结束请求幂等护栏挡掉,本组件不自建。
  *
- * <p>类注:实例只读视图的来源与 {@code session()} 暂返 null 的登记,
- * 同阶段状态机组件的类注(同一前置缺口,交付报告统一登记)。
+ * <p>类注:实例只读视图的来源同阶段状态机组件的类注;{@code session()} 已随
+ * 2.6 接通真只读视图(阶段1 已知问题 4 消除,记 deviations)。
  */
 public final class EndGateComponent extends MatchModeComponent {
 
@@ -126,8 +126,8 @@ public final class EndGateComponent extends MatchModeComponent {
         }
 
         @Override
-        public Session session() {
-            return null;    // 自面暂无会话读口(见类注),补齐后改为委托
+        public SessionView session() {
+            return svc().self().session();   // 2.6 接通:经服务集自面取所属会话的只读视图
         }
     }
 }

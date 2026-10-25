@@ -10,8 +10,6 @@ load: POSTWORLD          # 需要世界已加载才能解析地图坐标
 
 authors: [ HueZhandouji ]
 
-commands:
-  hydrocarbs:
-    description: "多模式小游戏框架主命令"
-    usage: "/sm <join|leave|switch|session|mode|map|stats|reload|debug>"
-    aliases: [sm]
+# 命令不在本文件声明:根命令 hydrokarbs(别名 hk)经 Brigadier 生命周期注册
+# (LifecycleEvents.COMMANDS,command/MatchCommand)——plugin.yml commands: 段与
+# Brigadier 同名注册冲突(papermc-plugin-dev 反模式表);已按阶段2 待裁决3 删除。

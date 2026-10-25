@@ -7,8 +7,7 @@ package com.hydrokarbs.engine.port;
  * 「惰性」= 每次读取穿透到底层配置源,不缓存首次结果——服主 {@code /reload}
  * 换掉底层数据后,后续 {@link #get} 自动读到新值(★39 以「换底层读新值」断言)。
  *
- * <p>实现体 = L1 {@code ConfigRepository}(装载归阶段 2.2,按所有权边界不在本子阶段);
- * 本阶段测试以 Map 背后的假实现替代(镜像 1.2 {@code MatchModeConfig} 的做法)。
+ * <p>实现体 = L1 {@code ConfigRepository}(bridge/config)。
  */
 public interface ConfigView {
 

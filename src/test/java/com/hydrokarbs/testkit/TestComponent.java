@@ -148,6 +148,11 @@ public final class TestComponent extends MatchModeComponent {
         svc().self().later(delayTicks, task);
     }
 
+    /** 所属会话的只读视图(svc().self().session() 的公开包装;★29 跨级只读断言用)。 */
+    public com.hydrokarbs.engine.port.SessionView sessionView() {
+        return svc().self().session();
+    }
+
     /** 请求结束(end 的公开包装;容器路径下受幂等护栏)。 */
     public void requestEnd(EndResult result) {
         svc().self().end(result);

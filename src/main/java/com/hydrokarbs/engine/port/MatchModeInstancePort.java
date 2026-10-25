@@ -20,8 +20,9 @@ import com.hydrokarbs.map.MapDefinition;
  * <p>实现体是 1.3 的实例容器(self 端口组,捕获容器自身)。本阶段只定义签名,
  * 签名写偏则 1.3/1.5 全线返工——与设计案 §2.5 逐字对照。
  *
- * <p>★v4 的 {@code session()}(所属会话的只读视图)不在本子阶段签名清单
- * (会话级组件层的五个类型归 2.6 施工):届时不改既有签名、只增该方法。
+ * <p>★v4(2.6)唯一修订:新增 {@link #session()}(我所属会话的只读视图,
+ * §2.8-决断四)——只增该方法,其余签名不动;实现体与只读读口
+ * {@code MatchModeInstanceView#session()} 同型(同一方法双满足)。
  */
 public interface MatchModeInstancePort {
 
@@ -60,4 +61,7 @@ public interface MatchModeInstancePort {
 
     /** ★ 请求模式切换(等价会话服务切换方法的组件侧口;受最短驻留/重入约束)。 */
     void switchTo(MatchModeSelection target, Handoff payload);
+
+    /** ★v4 新增:我所属会话的只读视图(会话级组件的只读查询入口;§2.5.1、§2.8-决断四)。 */
+    SessionView session();
 }

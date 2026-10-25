@@ -13,6 +13,9 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.4.21"
     id("xyz.jpenilla.run-paper") version "3.1.0"
     id("com.gradleup.shadow") version "9.6.1"
+    id("maven-publish")           // 7.2:发布 java component 到 mavenLocal——第三方 examples 工程
+                                  // compileOnly com.hydrokarbs:Hydrokarbs:3.0.0 的编译期来源(§13.4);
+                                  // 运行期零新增依赖(§7.2「别的插件不改我们的 jar 就能加模式」)
 }
 
 group = "com.hydrokarbs"
@@ -33,10 +36,6 @@ dependencies {
     //   不影响产物依赖;测试仍零 Bukkit import、不碰 Bukkit 静态)。
     testRuntimeOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
 
-    // 连接池必须随插件发布(服务端不提供),要 shade 进 fat-jar(§12 尾注)
-    implementation("com.zaxxer:HikariCP:5.1.0")
-    implementation("com.mysql:mysql-connector-j:8.4.0")
-
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")  // 冻结分层/聚合纯度(1.4 用)
@@ -48,6 +47,16 @@ dependencies {
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+// 7.2:mavenLocal 发布(java component = 普通 jar,非 shadowJar——第三方 compileOnly
+// 只需编译期可见 API 面;shadow 产物不进发布,禁 shade 纪律 14.35 的供给侧配合)
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
 }
 
 tasks {

@@ -15,7 +15,7 @@ public final class HydrokarbsPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         context = HydrokarbsAssembly.assemble(this);
-        getLogger().info("Hydrokarbs enabled (P0.6 process services assembly)");
+        getLogger().info("Hydrokarbs enabled");
     }
 
     @Override

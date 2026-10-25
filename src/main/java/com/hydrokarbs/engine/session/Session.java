@@ -3,82 +3,447 @@ package com.hydrokarbs.engine.session;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
+import com.hydrokarbs.engine.AttributeBag;
+import com.hydrokarbs.engine.component.SessionComponent;
+import com.hydrokarbs.engine.component.SessionComponentRegistry;
+import com.hydrokarbs.engine.event.SessionEvent;
+import com.hydrokarbs.engine.event.SessionEventBus;
 import com.hydrokarbs.engine.instance.MatchModeInstance;
+import com.hydrokarbs.engine.port.SessionEventPort;
+import com.hydrokarbs.engine.port.SessionView;
+import com.hydrokarbs.engine.port.WorldHandle;
 
 /**
- * 会话:跨模式常驻的玩家容器(名册/当前实例/状态机,03-会话与模式切换 §3.1)。
+ * 会话:跨模式常驻的玩家容器与切换编排骨架(03-会话与模式切换 §3.1)。
  *
- * <p><b>编译壳——状态机/切换/解散归阶段 2</b>(施工计划 1.3「engine/session 编译壳」);
- * 本阶段提供实例容器与节拍器可编译可测的最小落面:
- * <ul>
- *   <li>{@link #instanceEnded}:实例结束请求的收口(§12.2 {@code requestEnd} 的通知落点),
- *       本阶段仅记录请求——清场与切换由阶段 2 的节拍驱动接管;</li>
- *   <li>{@link #runPendingSwitch} / {@link #tickCurrentInstance} / {@link #idleTimers} /
- *       {@link #quarantine}:空实现,阶段 2 接管(§3.1 状态机与 §12.2 tickAll 驱动序)。</li>
- * </ul>
+ * <p><b>字段表(§3.1 职责清单,逐行内建)</b>:{@code id}/{@code spec}/{@code policy}/
+ * {@code roster}(名册)/{@code tracker}(连接追踪)/{@code events}(会话事件总线)/
+ * {@code attrs}(namespace {@value #NAMESPACE},默认空、禁止塞模式语义数据)/
+ * {@code state}(四态状态机)/{@code current}(0..1 当前实例;结束与切换中间态期间
+ * 同样持有旧实例直到 close 完成)。空场策略住宿级组件
+ * {@code component/session/EmptyArenaComponent}(§6.4);<b>连接追踪与宽限 sweep 仍内核</b>。
  *
- * <p>方法一律非 final,供测试桩覆写计数;字段与完整方法面由阶段 2 按 §3.2 立出。
+ * <p><b>★v4 会话级组件层落点(§3.8)</b>:本类持有 {@link SessionComponentRegistry}
+ * (构造期随 spec 建立,<b>每会话一份、非进程级静态</b>,★27);装配动作(bind/create/
+ * awake/start)由 {@code SessionServiceImpl.create} 驱动,派发经包级
+ * {@link #tickSessionComponents()}(tickAll ③ 步,每 tick 必调、与实例有无无关);
+ * {@link #sessionComponentCapabilities()} 是切换阶段 A2 可用集的会话侧来源(D6)。
+ * ★ <b>会话容器不持有会话组件的状态</b>(§2.8-决断三扩展)——注册表只持描述符与实例引用。
+ *
+ * <p><b>状态机先行、动作后接</b>:迁移写点收敛为包级方法 {@link #transitionTo(SessionState)}
+ * ——<b>2.3 的 {@code SessionServiceImpl} 是唯一调用者</b>,对外只暴露查询
+ * ({@link #state()}/{@link #in(SessionState, SessionState...)})与守卫
+ * ({@link #requireNotIn(SessionState...)}),避免状态迁移散落在多个调用方。
+ *
+ * <p><b>方法一律非 final</b>,供测试桩覆写计数(既有纪律)。
  */
 public class Session {
 
-    private final SessionId id;
-    private final SessionRoster roster;
-    private final List<EndNotice> endNotices = new ArrayList<>();
-    private MatchModeInstance currentInstance;    // 0..1;维护归阶段 2
+    /** 会话属性袋的内核保留命名空间(组件不得占用,02-核心概念 §2.7 加严③)。 */
+    public static final String NAMESPACE = "session";
 
-    public Session(SessionId id, SessionRoster roster) {
-        this.id = Objects.requireNonNull(id, "id");
-        this.roster = Objects.requireNonNull(roster, "roster");
+    /** {@link #lastSwitchTick} 的「从未切换」哨兵值(首次切换不受最短驻留限制,§3.5)。 */
+    static final long NO_SWITCH_YET = -1L;
+
+    private static final Logger LOG = Logger.getLogger(Session.class.getName());
+
+    private final SessionId id;
+    private final SessionSpec spec;
+    private final SessionPolicy policy;
+    private final SessionRoster roster;
+    private final ConnectionTracker tracker;
+    private final SessionEventBus events;
+    private final AttributeBag attrs;        // namespace "session";默认空,禁塞模式语义数据
+    private final SessionComponentRegistry sessionComponents;   // ★v4:每会话一份(★27)
+    private final SessionViewImpl view = new SessionViewImpl();
+    private final SessionEventPortImpl eventsPort = new SessionEventPortImpl();
+    // worldHandle: 2.4 接入 WorldHandle(字段位预留,届时落 Optional<WorldHandle> 与 worldHandle() 读口)
+
+    private volatile SessionState state = SessionState.RUNNING;
+    private volatile Optional<MatchModeInstance> current = Optional.empty();   // 写点 2.3(切换执行段)
+
+    /** 实例结束请求记录(诊断用;处置归切换执行段的自动驱动)。 */
+    private final List<EndNotice> endNotices = new ArrayList<>();
+
+    /** 挂起执行计划(2.3:阶段 A 完成与阶段 B 执行之间的唯一交接物;null = 无挂起)。 */
+    private PendingSwitch pending;
+
+    /** 会话驱动钩子(2.3 的 SessionServiceImpl 实现并注入;未注入时钩子空转)。 */
+    private Drive drive;
+
+    /** 最近一次切换完成时的会话 tick(最短驻留的计量基准;-1 = 从未切换,首切不设限)。 */
+    private long lastSwitchTick = NO_SWITCH_YET;
+
+    /** 会话 tick 计数(接线契约④:min-dwell 的驻留基准,§3.5)。 */
+    private long ticks;
+
+    /**
+     * @param spec   会话声明(id/初始模式/地图池/会话组件表)
+     * @param policy 会话策略(拓扑/驻留/宽限;空场策略在会话组件表里)
+     */
+    public Session(SessionSpec spec, SessionPolicy policy) {
+        this.spec = Objects.requireNonNull(spec, "spec");
+        this.id = spec.id();
+        this.policy = Objects.requireNonNull(policy, "policy");
+        this.roster = new SessionRoster();
+        this.tracker = new ConnectionTracker(policy.disconnectGraceMillis());
+        this.events = new SessionEventBus();
+        this.attrs = new AttributeBag();
+        this.sessionComponents = new SessionComponentRegistry(id, events);
     }
+
+    // ── 只读面 ────────────────────────────────────────────────────
 
     public SessionId id() {
         return id;
+    }
+
+    public SessionSpec spec() {
+        return spec;
+    }
+
+    public SessionPolicy policy() {
+        return policy;
     }
 
     public SessionRoster roster() {
         return roster;
     }
 
-    /** 当前实例(本阶段恒为 null——挂接归阶段 2 的切换执行段)。 */
-    public MatchModeInstance currentInstance() {
-        return currentInstance;
+    public ConnectionTracker tracker() {
+        return tracker;
+    }
+
+    public SessionEventBus events() {
+        return events;
+    }
+
+    /** 会话属性袋(namespace "session" 内核保留;默认空)。 */
+    public AttributeBag attrs() {
+        return attrs;
     }
 
     /**
-     * 实例结束请求的收口(§12.2 {@code requestEnd}):本阶段仅记录请求,
-     * 不清场、不切换——ticker 下一 tick 处置(§3.1「结束判定不立即清场」)。
+     * 会话组件注册表(每会话一份,★27;装配动作由 SessionServiceImpl.create 驱动)。
+     * 公开读口:诊断与冻结测试断言(实例恒等/隔离打标/登记序)的消费面;
+     * 装配写点仍在会话服务(本类不放写口)。
+     */
+    public SessionComponentRegistry sessionComponents() {
+        return sessionComponents;
+    }
+
+    /** 实例侧只读会话视图(★v4-D5;SessionView 的实现体,经实例端口 session() 暴露)。 */
+    public SessionView view() {
+        return view;
+    }
+
+    /** 会话事件端口(★v4;SessionPort#events() 的实现体,订阅句柄随组件 stop 回收)。 */
+    SessionEventPort eventsPort() {
+        return eventsPort;
+    }
+
+    /** 全部在册会话组件的能力标签并集(A2 可用集的会话侧来源,D6;随 dissolve 消灭)。 */
+    public Set<String> sessionComponentCapabilities() {
+        return sessionComponents.capabilitiesUnion();
+    }
+
+    /** 当前实例(0..1;无实例或切换中间态期间为 empty)。 */
+    public Optional<MatchModeInstance> currentInstance() {
+        return current;
+    }
+
+    /** 会话 tick 计数(每 tick 经 {@link #idleTimers(long)} 递增;min-dwell 驻留基准)。 */
+    public long ticks() {
+        return ticks;
+    }
+
+    // ── 状态机:对外查询 ───────────────────────────────────────────
+
+    /** 当前状态(查询口,返回值表达、不抛)。 */
+    public SessionState state() {
+        return state;
+    }
+
+    /** 是否处于任一给定态(布尔判定口,与断言式守卫分开;无参即恒 false)。 */
+    public boolean in(SessionState first, SessionState... rest) {
+        if (state == first) {
+            return true;
+        }
+        for (SessionState candidate : rest) {
+            if (state == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ── 状态机:写点收敛(2.3 的 SessionServiceImpl 是唯一调用者) ───
+
+    /**
+     * 断言式守卫:当前处于任一禁入态即抛 {@link IllegalStateException}(响亮失败;
+     * 写点内部用,调用方不得吞)。对外语义判定请走 {@link #in}。
+     */
+    void requireNotIn(SessionState... forbidden) {
+        for (SessionState candidate : forbidden) {
+            if (state == candidate) {
+                throw new IllegalStateException(
+                        "会话 " + id.value() + " 处于 " + state + ",禁入态 " + candidate + " 命中,拒绝操作");
+            }
+        }
+    }
+
+    /**
+     * 迁移写点(包级收敛,唯一入口):校验合法迁移矩阵
+     * ({@link SessionState#canTransitionTo})后写 volatile 状态。
+     * ★ 2.3 的 {@code SessionServiceImpl} 是唯一调用者;非法迁移在这里响亮失败。
+     */
+    void transitionTo(SessionState target) {
+        Objects.requireNonNull(target, "target");
+        if (state == target) {
+            throw new IllegalStateException("会话 " + id.value() + " 禁止自迁移: " + target);
+        }
+        if (!state.canTransitionTo(target)) {
+            throw new IllegalStateException(
+                    "会话 " + id.value() + " 非法迁移: " + state + " → " + target);
+        }
+        state = target;
+    }
+
+    // ── 节拍器四钩子(12-代码骨架 §12.2 v4 块 tickAll 驱动序①②③④) ───────
+
+    /**
+     * ① 待处理的模式切换/结束处置(切换的唯一驱动点,§3.5 防护②的机械保证——
+     * 事件派发栈内不发切换)。逻辑住在驱动钩子里:{@code SessionServiceImpl}
+     * 经 {@link #bindDrive} 注入;未注入时(2.1 风格裸会话)本钩子空转。
+     */
+    public void runPendingSwitch() {
+        Drive hook = drive;
+        if (hook != null) {
+            hook.onDrive(this);
+        }
+    }
+
+    /** ② 驱动当前实例一拍(无实例为 no-op;实例内部自带关闭护栏)。 */
+    public void tickCurrentInstance() {
+        current.ifPresent(MatchModeInstance::tick);
+    }
+
+    /**
+     * ③ 会话组件派发(★v4;每 tick 必调,<b>与实例有无无关</b>——切换间隙照常,
+     * §3.8/§11.4)。隔离语义在内:逐组件 try/catch → D9 隔离(停用单个组件,
+     * 会话不解散),不外抛到节拍器的会话隔离路径。
+     *
+     * <p>可见性说明(记 deviations):2.6 文档步骤 7 写「包级」,但驱动方
+     * {@code EngineTicker} 住 {@code com.hydrokarbs.engine} 包(跨包)——与其余
+     * 三个节拍钩子(runPendingSwitch/tickCurrentInstance/idleTimers)同口径提 public。
+     */
+    public void tickSessionComponents() {
+        sessionComponents.tickAll();
+    }
+
+    /**
+     * ④ 内核节律(无参版:节拍器入口,取系统时钟;离线测试请用
+     * {@link #idleTimers(long)} 手动时钟——时间源单点注入)。
+     * 内容:会话 tick 计数推进 + 断线宽限清点(★v4-D11:空场计时已下放组件)。
+     */
+    public void idleTimers() {
+        idleTimers(System.currentTimeMillis());
+    }
+
+    /**
+     * ④ 的可控时钟版。每 tick:
+     * <ol>
+     *   <li>tick 计数递增(接线契约④:min-dwell 驻留基准,2.3 消费);</li>
+     *   <li>宽限清点:到期成员移出名册(宽限期满移除,不再单独发事件——
+     *       MemberLeft 在断线时已发,语义见 2.1 要点,待裁决登记)。</li>
+     * </ol>
+     */
+    public void idleTimers(long nowMillis) {
+        ticks++;
+        sweepDisconnectGrace(nowMillis);
+    }
+
+    /** 宽限清点:到期者移出名册并记日志(名册增删执行权在会话——本钩子即清点执行点)。 */
+    private void sweepDisconnectGrace(long nowMillis) {
+        for (UUID expired : tracker.sweep(nowMillis)) {
+            roster.remove(expired);
+            LOG.log(Level.INFO, "断线宽限期满,移除成员 {0}(会话 {1})",
+                    new Object[] { expired, id.value() });
+        }
+    }
+
+    /** 会话故障隔离(节拍器的兜底路径):委托驱动钩子强切回退模式;未注入为 no-op。 */
+    public void quarantine() {
+        Drive hook = drive;
+        if (hook != null) {
+            hook.onQuarantine(this);
+        }
+    }
+
+    // ── 实例结束请求的收口(§12.2 requestEnd 的通知落点) ──────────
+
+    /**
+     * 实例结束请求的收口:置 {@code ENDING}(结束判定不立即清场,清场由节拍器在
+     * 下一 tick 驱动,§3.1)并记录请求。已处于 {@code ENDING}(同实例幂等护栏外的
+     * 重复通知)仅追加记录;{@code DISSOLVING} 期间忽略并记日志(会话已在终结)。
      */
     public void instanceEnded(MatchModeInstance instance, EndResult result) {
+        Objects.requireNonNull(instance, "instance");
+        Objects.requireNonNull(result, "result");
+        if (state == SessionState.DISSOLVING) {
+            LOG.log(Level.WARNING, "解散中的会话 {0} 收到实例结束请求,忽略", id.value());
+            return;
+        }
+        if (state == SessionState.RUNNING) {
+            transitionTo(SessionState.ENDING);
+        }
         endNotices.add(new EndNotice(instance, result));
     }
 
-    /** 待处理的模式切换(阶段 2:切换的唯一驱动点是节拍器调用本方法,§3.5)。 */
-    public void runPendingSwitch() {
-        // 阶段 2 接管
-    }
-
-    /** 驱动当前实例一拍(阶段 2:转调当前实例的派发方法)。 */
-    public void tickCurrentInstance() {
-        // 阶段 2 接管
-    }
-
-    /** 会话级节律(阶段 2:断线宽限等内核清点)。 */
-    public void idleTimers() {
-        // 阶段 2 接管
-    }
-
-    /** 会话故障隔离(阶段 2:强制切回退/解散)。 */
-    public void quarantine() {
-        // 阶段 2 接管
-    }
-
-    /** 已收到的结束请求记录(诊断用;完整处置归阶段 2)。 */
+    /** 已收到的结束请求记录(诊断用)。 */
     List<EndNotice> endNotices() {
         return List.copyOf(endNotices);
     }
 
+    /** 取走全部未处置的结束请求(自动切换处置入口;取走即清空)。 */
+    List<EndNotice> drainEndNotices() {
+        List<EndNotice> drained = List.copyOf(endNotices);
+        endNotices.clear();
+        return drained;
+    }
+
+    /** 回填结束请求(自动切换被防护拒绝时:保留请求,下一拍重试直至放行)。 */
+    void restoreEndNotices(List<EndNotice> notices) {
+        endNotices.addAll(notices);
+    }
+
     /** 结束请求记录:(实例, 结果)。 */
     record EndNotice(MatchModeInstance instance, EndResult result) {
+    }
+
+    // ── 驱动钩子与切换交接物(2.3:SessionServiceImpl 是唯一注入/写点) ────────
+
+    /** 会话驱动钩子:切换执行/结束处置/故障隔离的落点(由会话服务实现注入)。 */
+    public interface Drive {
+
+        /** 节拍器每 tick 驱动:执行挂起的切换 B 段、处置 ENDING 的自动切换。 */
+        void onDrive(Session session);
+
+        /** 故障隔离:当前实例异常驱动时强切回退模式。 */
+        void onQuarantine(Session session);
+    }
+
+    /** 绑定驱动钩子(会话创建时由 {@code SessionServiceImpl} 调用,装配期唯一写点)。 */
+    public void bindDrive(Drive drive) {
+        this.drive = Objects.requireNonNull(drive, "drive");
+    }
+
+    /** 当前挂起的切换计划(null = 无;占位/就绪两态见 {@link PendingSwitch})。 */
+    PendingSwitch pendingSwitch() {
+        return pending;
+    }
+
+    /** 挂起切换计划(占位守卫:同步段通过即挂上,阻止切换窗口内的并发请求)。 */
+    void setPendingSwitch(PendingSwitch plan) {
+        this.pending = Objects.requireNonNull(plan, "plan");
+    }
+
+    /** 清除挂起计划(B 段执行取走/作废时)。 */
+    void clearPendingSwitch() {
+        this.pending = null;
+    }
+
+    /** 替换当前实例(B4/B5 的落点;切换执行段唯一写点)。 */
+    void setCurrentInstance(MatchModeInstance instance) {
+        this.current = Optional.ofNullable(instance);
+    }
+
+    /** 最近一次切换完成时的会话 tick(-1 = 从未切换)。 */
+    long lastSwitchTick() {
+        return lastSwitchTick;
+    }
+
+    /** 记录切换完成时刻(B5 落点;最短驻留自此重新计量)。 */
+    void recordSwitchTick(long atTick) {
+        this.lastSwitchTick = atTick;
+    }
+
+    // ── 世界句柄持有(内核职责:实例用图由会话持句柄,§3.1;释放接缝 2.4 实装) ────
+
+    private volatile WorldHandle worldHandle;
+
+    /** 当前世界句柄(null = 未持有;切换完成/解散时改写)。 */
+    WorldHandle worldHandle() {
+        return worldHandle;
+    }
+
+    /** 替换世界句柄并返回旧值(切换执行段 B5 的落点;返回值供释放接缝消费)。 */
+    WorldHandle replaceWorldHandle(WorldHandle newHandle) {
+        WorldHandle previous = this.worldHandle;
+        this.worldHandle = newHandle;
+        return previous;
+    }
+
+    // ── ★v4 只读视图的实现体(跨级只读,D5;只读是架构纪律 + review 条款) ────
+
+    /** 实例侧只读会话视图:委托名册/属性袋/会话组件注册表(现取,不缓存)。 */
+    private final class SessionViewImpl implements SessionView {
+
+        @Override
+        public SessionId id() {
+            return id;
+        }
+
+        @Override
+        public List<SessionMember> members() {
+            return roster.all();
+        }
+
+        @Override
+        public AttributeBag attrs() {
+            return attrs;
+        }
+
+        @Override
+        public <T extends SessionComponent> T component(Class<T> type) {
+            return sessionComponents.get(type);
+        }
+
+        @Override
+        public <T extends SessionComponent> List<T> components(Class<T> type) {
+            return sessionComponents.getAll(type);
+        }
+    }
+
+    /**
+     * 会话事件端口实现体:发布直通总线;订阅句柄登记到发起组件名下
+     * (调用栈反查,随 stop/隔离统一回收),返回句柄供显式提前注销。
+     */
+    private final class SessionEventPortImpl implements SessionEventPort {
+
+        @Override
+        public void publish(SessionEvent event) {
+            events.publish(event);
+        }
+
+        @Override
+        public <E extends SessionEvent> AutoCloseable subscribe(Class<E> type, Consumer<E> subscriber) {
+            return subscribe(type, SessionEventBus.DEFAULT_PRIORITY, subscriber);
+        }
+
+        @Override
+        public <E extends SessionEvent> AutoCloseable subscribe(Class<E> type, int priority,
+                                                                Consumer<E> subscriber) {
+            SessionEventBus.Subscription handle = events.subscribe(type, priority, subscriber);
+            sessionComponents.registerResource(sessionComponents.callerOnStack(), handle);
+            return handle;
+        }
     }
 }

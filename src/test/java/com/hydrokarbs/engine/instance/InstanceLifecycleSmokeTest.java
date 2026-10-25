@@ -29,7 +29,8 @@ import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionMember;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -140,7 +141,11 @@ class InstanceLifecycleSmokeTest {
         final List<String> endNotices = new ArrayList<>();
 
         RecordingSession(String id, SessionMember... members) {
-            super(new SessionId(id), new SessionRoster(List.of(members)));
+            super(new SessionSpec(new SessionId(id), "lifecycle-probe", java.util.List.of()),
+                    SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
+            for (SessionMember member : members) {
+                roster().join(member.uuid(), member.joinedAtMillis());
+            }
         }
 
         @Override
@@ -161,8 +166,32 @@ class InstanceLifecycleSmokeTest {
         return builder.build();
     }
 
+    /** 全回落缺省配置(2.2 接口扩员后的具名假实现)。 */
+    private static final class FallbackConfig implements MatchModeConfig {
+
+        @Override
+        public int getInt(String path, int def) {
+            return def;
+        }
+
+        @Override
+        public String getString(String path, String def) {
+            return def;
+        }
+
+        @Override
+        public List<String> getStringList(String path, List<String> def) {
+            return def;
+        }
+
+        @Override
+        public List<String> keys(String section) {
+            return List.of();
+        }
+    }
+
     private static MatchModeConfig cfg() {
-        return (path, def) -> def;
+        return new FallbackConfig();
     }
 
     private static MapDefinition map() {
@@ -182,7 +211,8 @@ class InstanceLifecycleSmokeTest {
         UUID u1 = UUID.randomUUID();
         UUID u2 = UUID.randomUUID();
         RecordingSession session = new RecordingSession("s1",
-                new SessionMember(u1, true, 1L), new SessionMember(u2, true, 2L));
+                new SessionMember(u1, SessionMember.ConnectionStatus.ONLINE, 1L),
+                new SessionMember(u2, SessionMember.ConnectionStatus.ONLINE, 2L));
         MatchModeInstance instance = instance(mode("m1",
                 new ProbeSpec(log, null, null),
                 new ProbeSpec(log, null, null)), session, new FakePlatform());
@@ -281,7 +311,8 @@ class InstanceLifecycleSmokeTest {
 
         // 只读读口与容器直读口
         MatchModeInstanceView view = instance.view();
-        assertSame(session, view.session());
+        assertEquals(session.id(), view.session().id(), "只读会话视图携带所属会话 id(2.6 收窄,记 deviations)");
+        assertEquals(session.roster().all(), view.session().members(), "视图成员快照与名册一致");
         assertEquals("map1", view.map().id());
         assertEquals(1, view.tick(), "startAll 推进 1 拍");
         assertNotNull(view.component(ProbeComponent.class), "读口取第一个可赋值者");

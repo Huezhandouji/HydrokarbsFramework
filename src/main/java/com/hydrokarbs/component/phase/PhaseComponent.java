@@ -9,7 +9,7 @@ import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.instance.MatchModeInstanceView;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 import com.hydrokarbs.engine.session.MatchModeConfig;
-import com.hydrokarbs.engine.session.Session;
+import com.hydrokarbs.engine.port.SessionView;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -32,8 +32,8 @@ import com.hydrokarbs.map.MapDefinition;
  *
  * <p>类注:实例只读视图的来源——{@link MatchModeInstanceView} 无服务集直通口
  * (「组件拿 view」的通道在前置子阶段未落接口),本组件以嵌套适配器把视图面
- * 委托到 {@code svc()} 能取到的读口;其中 {@code session()} 暂返 null
- * (自面暂无会话读口,待后续子阶段补),登记见交付报告。
+ * 委托到 {@code svc()} 能取到的读口;{@code session()} 已随 2.6 接通真只读视图
+ * (经 {@code svc().self().session()} 委托;阶段1 已知问题 4 消除,记 deviations)。
  */
 public final class PhaseComponent extends MatchModeComponent {
 
@@ -204,8 +204,8 @@ public final class PhaseComponent extends MatchModeComponent {
         }
 
         @Override
-        public Session session() {
-            return null;    // 自面暂无会话读口(见类注),补齐后改为委托
+        public SessionView session() {
+            return svc().self().session();   // 2.6 接通:经服务集自面取所属会话的只读视图
         }
     }
 

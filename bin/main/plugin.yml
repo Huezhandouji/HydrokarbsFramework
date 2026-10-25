@@ -1,0 +1,15 @@
+name: Hydrokarbs
+version: '${version}'
+main: com.hydrokarbs.HydrokarbsPlugin
+paper-plugin-loader: com.hydrokarbs.HydrokarbsPluginLoader
+bootstrapper: com.hydrokarbs.Bootstrapper
+api-version: '1.21.11'
+load: POSTWORLD          # 需要世界已加载才能解析地图坐标
+
+# softdepend:框架基线无(宿主扩展线依赖由 Shdf 侧施工阶段引入)
+
+authors: [ HueZhandouji ]
+
+# 命令不在本文件声明:根命令 hydrokarbs(别名 hk)经 Brigadier 生命周期注册
+# (LifecycleEvents.COMMANDS,command/MatchCommand)——plugin.yml commands: 段与
+# Brigadier 同名注册冲突(papermc-plugin-dev 反模式表);已按阶段2 待裁决3 删除。

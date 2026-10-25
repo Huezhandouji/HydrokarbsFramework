@@ -11,6 +11,7 @@ import com.hydrokarbs.engine.event.MatchModeInstanceEventBus;
 import com.hydrokarbs.engine.event.MatchModeInstanceEventPort;
 import com.hydrokarbs.engine.instance.Participant;
 import com.hydrokarbs.engine.port.MatchModeInstancePort;
+import com.hydrokarbs.engine.port.SessionView;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.HandoffView;
@@ -45,7 +46,7 @@ public final class FakeSelfPort implements MatchModeInstancePort {
     private final MatchModeConfig cfg;
 
     public FakeSelfPort() {
-        this((path, def) -> def);
+        this(OfflineAssembly.cfg());
     }
 
     public FakeSelfPort(MatchModeConfig cfg) {
@@ -111,5 +112,14 @@ public final class FakeSelfPort implements MatchModeInstancePort {
     @Override
     public void switchTo(MatchModeSelection target, Handoff payload) {
         switchCalls.add(target);
+    }
+
+
+    /** 2.6 增补:所属会话只读视图——假件无会话骨架,测试需要时覆写本字段。 */
+    public SessionView sessionOverride;
+
+    @Override
+    public SessionView session() {
+        return sessionOverride;
     }
 }

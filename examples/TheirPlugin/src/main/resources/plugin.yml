@@ -1,0 +1,9 @@
+# 第三方消费样例插件描述符(7.5 施工文档步骤 10;plugin.yml 传统风格——
+# 不写 commands: 段,Brigadier 经 LifecycleEvents.COMMANDS 注册;§7.5 起为真实
+# 消费样例:depend 硬依赖 + onEnable 首行 API_VERSION 检查拒载,14.36)
+name: TheirPlugin
+version: 1.1.0
+main: com.example.their.TheirPlugin
+description: Hydrokarbs 第三方消费样例(模式/贡献/成员/事件/能力/注册式地图)
+api-version: '1.21.11'
+depend: [Hydrokarbs]

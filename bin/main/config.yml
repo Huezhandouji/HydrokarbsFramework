@@ -1,0 +1,18 @@
+# ═══════════════════════════════════════════════════════════════
+# Hydrokarbs MiniGame Framework 全局配置
+# 首次启动释放本默认资源;已存在的用户配置永不覆盖。
+# ═══════════════════════════════════════════════════════════════
+config-version: 3
+
+engine:
+  tick-period: 1             # 引擎节拍周期(tick);1 = 每 tick;引擎配置块不出现内容参数
+
+session:                     # 内核节律参数——会话由宿主经 SessionService.create(SessionSpec)
+                             #   创建,框架启动时不建任何会话
+  fallback-mode: ""          # 切换回退模式 id(填你自己的已注册模式 id);留空或未注册时
+                             #   回退链跳过一级,直接解散兜底
+  min-dwell-ticks: 100       # 最短驻留(防切换风暴)
+  disconnect-grace-seconds: 60   # 断线宽限(秒):宽限期内成员保留在册,重连即恢复
+
+performance:
+  component-budget-ms: 5     # 单组件单 tick 预算;超阈值记 WARNING(会话/组件/提供方插件),硬熔断不做

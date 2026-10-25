@@ -10,8 +10,8 @@ import java.util.Optional;
  * <p>与 {@code AttributeBag} 同一套键值模式(命名空间 + 名字 + 类型),
  * 杜绝「用 {@code Map<String,Object>} 传交接数据、接收端强转炸裂」的写法。
  *
- * <p>★v3.1:命名空间 = 写入方自己的 id(模式 id / 组件 id / 第三方插件 id);
- * 框架不写任何键、不保留任何命名空间(历史框架保留键机制已删除)。
+ * <p>命名空间 = 写入方自己的 id(模式 id / 组件 id / 第三方插件 id);
+ * 框架不写任何键、不保留任何命名空间。
  * 键随主人:谁生产谁持有公开常量,跨组件引用交接键常量是合法协作——
  * 交接本就是跨模式通道(与 {@code AttributeBag} 的「不得写他人命名空间」是两回事)。
  *
@@ -72,9 +72,22 @@ public final class Handoff implements HandoffView {
         return Optional.of(key.type().cast(value));
     }
 
+    /**
+     * 是否存在该键:<b>不论取值类型</b>(同「命名空间 + 名字」即算存在)——
+     * 与 {@link #get} 的「类型不符返回 empty」配套:类型漂移探测先用 has 确认键在,
+     * 再用 get 拿不到值即知类型漂移(§14.20-②)。
+     */
     @Override
     public boolean has(Key<?> key) {
-        return values.containsKey(key);
+        if (key == null) {
+            return false;
+        }
+        for (Key<?> existing : values.keySet()) {
+            if (existing.namespace().equals(key.namespace()) && existing.name().equals(key.name())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

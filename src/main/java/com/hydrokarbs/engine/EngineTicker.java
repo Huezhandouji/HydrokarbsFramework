@@ -20,8 +20,10 @@ import com.hydrokarbs.engine.session.SessionService;
  *
  * <p>★ 切换的唯一驱动点是 {@link #tickAll()} 里的
  * {@code runPendingSwitch()}(03-会话与模式切换 §3.5 防重入的机械保证)——
- * 「事件栈内不发切换」从本阶段起就是纪律。★ 2.6 将把每会话驱动序扩为四步
- * (③ 会话组件派发、④ 内核清点;§3.8)——顺序是规格的一部分。
+ * 「事件栈内不发切换」从本阶段起就是纪律。★v4(2.6):每会话驱动序扩为<b>四步</b>
+ * (新增 ③ 会话组件派发;空场计时移出内核 ④,§3.8)——<b>顺序是规格的一部分</b>:
+ * ① 待处理切换 → ② 当前实例派发 → ③ 会话组件派发(每 tick 必调,与实例有无无关)
+ * → ④ 内核清点(断线宽限等)。
  */
 public final class EngineTicker implements AutoCloseable {
 
@@ -55,16 +57,22 @@ public final class EngineTicker implements AutoCloseable {
     }
 
     /**
-     * 驱动全部会话一拍(包内可见:离线单测直调,与 Bukkit 接线分离)。
-     * 每会话依次:待处理切换 → 当前实例派发 → 内核节律;
+     * 驱动全部会话一拍(2.3 起提 public:会话层离线测试直调驱动,与 Bukkit 接线分离;
+     * 自动切换的调用栈检查以本类帧为准,见 {@code SessionServiceImpl} 的防护闸门)。
+     * ★v4(2.6):每会话四步,<b>顺序是规格的一部分</b>(§3.8/§11.4):
+     * ① 待处理切换(机制,不变)→ ② 当前实例派发(若有实例;不变)→
+     * ③ <b>会话组件派发(每 tick 必调,与实例有无无关;切换间隙照常——实例侧组件
+     * 不 tick、会话组件照常 tick;组件级异常在 ③ 内部按 D9 隔离,不外抛)</b> →
+     * ④ 内核清点(断线宽限等;机制,不变——空场计时已下放组件,D11)。
      * 逐会话 try/catch——一个坏会话被隔离,不拖死别的会话。
      */
-    void tickAll() {
+    public void tickAll() {
         for (Session session : sessions.all()) {
             try {
-                session.runPendingSwitch();       // ① 切换只在此驱动(§3.5)
-                session.tickCurrentInstance();    // ② 当前实例派发(只派发组件更新)
-                session.idleTimers();             // ③ 内核节律(内容归阶段 2)
+                session.runPendingSwitch();          // ① 切换只在此驱动(§3.5)
+                session.tickCurrentInstance();       // ② 当前实例派发(只派发组件更新)
+                session.tickSessionComponents();     // ③ 会话组件派发(★v4;每 tick 必调)
+                session.idleTimers();                // ④ 内核节律(宽限清点;空场已下放)
             } catch (Throwable t) {
                 LOG.log(Level.SEVERE, "会话驱动异常(隔离该会话,其余照常): " + session.id().value(), t);
                 session.quarantine();
@@ -72,7 +80,7 @@ public final class EngineTicker implements AutoCloseable {
         }
     }
 
-    /** 取消句柄(★ onDisable 必调;会话解散循环的接线归阶段 2——本阶段会话集合恒空)。 */
+    /** 取消句柄(★ onDisable 必调;全部会话的解散接线在 L0 关停序列,§12.2)。 */
     @Override
     public void close() {
         cancelCurrent();

@@ -4,6 +4,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
@@ -34,8 +35,14 @@ import com.tngtech.archunit.lang.ArchRule;
  * 即红,而非事后补网。宿主插件包坐标以合法包名 {@code com.shdf.roleplugin..} 占位
  * (文档的尖括号占位符非法,见规则处注释),接入时由宿主工程注入实际坐标。
  */
-@AnalyzeClasses(packages = "com.hydrokarbs")
+@AnalyzeClasses(packages = "com.hydrokarbs", importOptions = ImportOption.DoNotIncludeTests.class)
 class LayeringTest {
+
+    // 分析范围注(7.1 施工,记 modifiedFiles+decisions):importOptions = DoNotIncludeTests——
+    // 冻结命题均为产物(main 源集)分层契约,api 测试类住 com.hydrokarbs.api 包、自带
+    // junit/testkit 依赖,此前无 api 包故未暴露;7.1 起不排除即假阳性红旗。对 noClasses 型
+    // 规则,从分析集移除测试类只会减少候选违规,不可能把已绿规则变红——命题不变、非放宽
+    // (施工计划 §3 纪律 4:修测试单独说明)。
 
     /** ★1:引擎不认识任何模式(锚定修正后的禁入集 = L3/L4 顶层包)。 */
     @ArchTest
@@ -72,12 +79,29 @@ class LayeringTest {
                     .should().dependOnClassesThat()
                     .resideInAnyPackage("com.hydrokarbs.bridge.role..");
 
-    /** ★-末条:api 只依赖 engine 与平台原语(§16.2 原样;框架基线无 api 包,空集显式合法)。 */
+    /**
+     * ★-末条:api 只依赖 engine 与平台原语(§16.2 原样;7.1 起 api 包有实体)。
+     *
+     * <p><b>允许集三项技术修正(7.1 施工,命题不变、非放宽断言;施工计划 §3 纪律 4
+     * 的「修测试单独说明」在册)</b>:
+     * ① {@code net.kyori..}——Adventure 是 Paper 平台文本 API,引擎签名已在用
+     * Component({@code MatchMode#displayName}/{@code MatchModeInfoPort});
+     * {@code MiniGameApiImpl} 的 displayName/description MiniMessage 序列化属同源
+     * 平台原语(07 §7.1 步骤 3 转换表);
+     * ② {@code com.hydrokarbs.map..}——07 §7.2 白名单明列「map/ 读面」;
+     * {@code maps()} 快照的转换源是 {@code MapRegistry}/{@code MapDefinition}
+     * (registerMap(Plugin, MapDefinition) 签名必需,7.5 增量同源);
+     * ③ {@code com.hydrokarbs.api..}——api 自身组合面:接口↔view record 同包依赖,
+     * 冻结面的组成部分(非引擎外部件,放行不构成任何越界通道)。
+     * 命题不变:api 仍不得依赖 mode/**、component/**、bridge/**、service/**、
+     * 任何 Impl(测试类已经类级 DoNotIncludeTests 移出分析)。
+     */
     @ArchTest
     static final ArchRule apiDependsOnlyOnEngine =
             classes().that().resideInAPackage("..api..")
                     .should().onlyDependOnClassesThat()
-                    .resideInAnyPackage("..engine..", "java..", "io.papermc..", "org.bukkit..")
+                    .resideInAnyPackage("..engine..", "java..", "io.papermc..", "org.bukkit..",
+                            "net.kyori..", "com.hydrokarbs.map..", "com.hydrokarbs.api..")
                     .allowEmptyShould(true);
 
     // ── ★40 服务层分层冻结(1.6 落地;18 号修正案 §7;14.33 双向互不可见)──
@@ -93,10 +117,43 @@ class LayeringTest {
                     .resideInAnyPackage("com.hydrokarbs.mode..", "com.hydrokarbs.component..",
                             "..bridge.role..");
 
+    /**
+     * ★40-增款(★v1.1;14-陷阱清单 14.37/19-D10;7.5 施工文档步骤 11):服务层不得
+     * import {@code api/**}——服务是引擎内部居民,不消费 {@code MiniGameApi}(三通道
+     * 原文保留;{@code joinSession}/leaveSession 扩大的是外部调用方阵营,不构成第四通道)。
+     * 显式两包锚定(engine.service 与顶层 service;沿 1.4 锚定口径),与既有 ★40-a/b
+     * 并列、无一字放宽。
+     */
+    @ArchTest
+    static final ArchRule servicesMustNotImportApi =
+            noClasses().that().resideInAnyPackage("com.hydrokarbs.engine.service..",
+                            "com.hydrokarbs.service..")
+                    .should().dependOnClassesThat()
+                    .resideInAPackage("com.hydrokarbs.api..");
+
     /** ★40-b:组件与模式不得 import 服务层(engine.service 与顶层 service)。 */
     @ArchTest
     static final ArchRule modesAndComponentsMustNotImportServices =
             noClasses().that().resideInAnyPackage("com.hydrokarbs.component..", "com.hydrokarbs.mode..")
                     .should().dependOnClassesThat()
                     .resideInAnyPackage("com.hydrokarbs.engine.service..", "com.hydrokarbs.service..");
+
+    // ── ★v4 补充条款(2.6 落地;依据 16 §16.2 v4 修订注与 1.4 的 v4 增补注)──
+    //   判定补充而非放宽:既有规则(engine 不认识 component/mode、服务双向互不可见)
+    //   一字未动;本组只把 v4 新增的会话级组件包 component/session/** 归入 L3、
+    //   并显式冻结其消费方白名单(模式可 import 它 = 软接入;引擎/桥接/服务/监听器
+    //   一律不可)。MatchModeInstancePort#session() 引用的 SessionView 住 engine.port,
+    //   属引擎内部依赖,不触任何既有禁令——「允许」由本注释与 16 §16.2 修订注共同落档。
+
+    /**
+     * ★v4:会话级组件包(component/session/**)归 L3——只允许被自身、L4 模式
+     * (模式接入会话能力的软接入)与 L0 装配(根包 HydrokarbsAssembly,装配来源唯一)
+     * 依赖;引擎(含会话组件注册表)、桥接、服务、监听器、命令层一律不得认识它。
+     */
+    @ArchTest
+    static final ArchRule sessionComponentsAreL3ConsumableOnlyByModesAndAssembly =
+            classes().that().resideInAPackage("com.hydrokarbs.component.session..")
+                    .should().onlyHaveDependentClassesThat()
+                    .resideInAnyPackage("com.hydrokarbs.component.session..", "com.hydrokarbs.mode..",
+                            "com.hydrokarbs");
 }

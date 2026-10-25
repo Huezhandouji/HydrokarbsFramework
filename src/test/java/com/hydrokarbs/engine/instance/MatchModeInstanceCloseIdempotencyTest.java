@@ -21,8 +21,8 @@ import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
-import com.hydrokarbs.engine.session.SessionMember;
-import com.hydrokarbs.engine.session.SessionRoster;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.map.MapDefinition;
 
 /**
@@ -32,6 +32,30 @@ import com.hydrokarbs.map.MapDefinition;
  * 离线可跑:零 Bukkit import(Bukkit 类型位置传 null/全限定)。
  */
 class MatchModeInstanceCloseIdempotencyTest {
+
+    /** 全回落缺省配置(2.2 接口扩员后的具名假实现)。 */
+    private static final class FallbackConfig implements MatchModeConfig {
+
+        @Override
+        public int getInt(String path, int def) {
+            return def;
+        }
+
+        @Override
+        public String getString(String path, String def) {
+            return def;
+        }
+
+        @Override
+        public List<String> getStringList(String path, List<String> def) {
+            return def;
+        }
+
+        @Override
+        public List<String> keys(String section) {
+            return List.of();
+        }
+    }
 
     /** 假组件:记录钩子;start 里经端口登记一次性任务(产生可回收句柄)。 */
     static final class ProbeComponent extends MatchModeComponent {
@@ -101,9 +125,11 @@ class MatchModeInstanceCloseIdempotencyTest {
         }
         MatchMode mode = builder.build();
 
-        SessionRoster roster = new SessionRoster(List.of(new SessionMember(UUID.randomUUID(), true, 1L)));
-        Session session = new Session(new SessionId("s1"), roster);
-        MatchModeConfig cfg = (path, def) -> def;
+        Session session = new Session(
+                new SessionSpec(new SessionId("s1"), "close-probe", List.of()),
+                SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
+        session.roster().join(UUID.randomUUID(), 1L);
+        MatchModeConfig cfg = new FallbackConfig();
         MapDefinition map = new MapDefinition("map1", "world1", Set.of(), Map.of());
         CountingPlatform platform = new CountingPlatform();
 
