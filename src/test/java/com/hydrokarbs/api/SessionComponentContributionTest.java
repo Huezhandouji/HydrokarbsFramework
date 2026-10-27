@@ -9,20 +9,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
+import java.nio.file.Path;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.api.view.SessionInfo;
 import com.hydrokarbs.engine.component.ComponentDependencyException;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.component.SessionComponentContributionRegistry;
 import com.hydrokarbs.engine.mode.MatchMode;
-import com.hydrokarbs.engine.port.ConfigView;
 import com.hydrokarbs.engine.port.SessionServices;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Session;
@@ -30,18 +27,19 @@ import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SessionState;
-import com.hydrokarbs.listener.ProviderServiceListener;
 import com.hydrokarbs.testkit.FakeWorldPort;
 import com.hydrokarbs.testkit.OfflineApi;
 import com.hydrokarbs.testkit.SessionProbeComponent;
 import com.hydrokarbs.testkit.StubSessionService;
+import com.hydrokarbs.testkit.TestPlugins;
 
 /**
- * 会话组件贡献 SPI 端到端(★51~★53;D14 两通道;7.5 施工文档步骤 5/6,离线):
+ * 会话组件贡献端到端(★51~★53;D14 两通道;7.5 施工文档步骤 5/6,离线):
  * <ul>
- *   <li>★51(通道一·全局):provider 收录后新会话合并其贡献(合并序 = provider 注册序
- *       → recipe.extra);坏 provider 干跑校验失败 SEVERE 拒收录、会话照常;
- *       provider 摘除(disable 兜底路径)后新会话不再合并;</li>
+ *   <li>★51(通道一·全局):贡献经 {@code api.registerSessionComponents} 显式注册后
+ *       新会话合并(合并序 = 注册序 → recipe.extra);坏贡献干跑校验失败<b>响亮上抛</b>
+ *       给调用方(★v1.5:显式注册可捕获,原事件通道「SEVERE 拒收录、会话照常」口径
+ *       随通道退场);摘除(disable 兜底同款路径)后新会话不再合并;</li>
  *   <li>★52(通道二·单次):recipe.extra 进表、随 dissolve 全灭;查重/缺依赖
  *       createSession 响亮拒绝(引擎装配闸,不写第二套校验);</li>
  *   <li>★53(隔离):贡献组件运行期抛异常仅自身 quarantine、会话不解散(★30 扩展)。</li>
@@ -49,41 +47,22 @@ import com.hydrokarbs.testkit.StubSessionService;
  *
  * <p>合并序断言用 {@link StubSessionService} 记录 spec(薄委托的输入面);
  * 生命周期/隔离/响亮拒用真会话服务(装配闸与 D9 隔离的真实管线)。
- * 零 Bukkit 静态调用。
+ * {@code Plugin} 以动态代理占位(身份键;{@link TestPlugins} 先例)。零 Bukkit 静态调用。
  */
 class SessionComponentContributionTest {
 
     private static final String MODE_ID = "probe_mode";
     private static final MatchMode MODE = OfflineApi.mode(MODE_ID, OfflineApi.TAG);
 
+    @TempDir
+    Path tempDir;
+
     private OfflineApi harness;
-    private final List<LogRecord> listenerLogs = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
-        harness = new OfflineApi(null, FakeWorldPort.immediate(), MODE);
-    }
-
-    /** 收录监听(离线构造口;日志捕获断言 SEVERE 拒收录)。 */
-    private ProviderServiceListener listener() {
-        Logger logger = Logger.getLogger("contribution-listener-" + System.nanoTime());
-        logger.setUseParentHandlers(false);
-        logger.addHandler(new Handler() {
-            @Override
-            public void publish(LogRecord record) {
-                listenerLogs.add(record);
-            }
-
-            @Override
-            public void flush() {
-            }
-
-            @Override
-            public void close() {
-            }
-        });
-        return new ProviderServiceListener(harness.modes, harness.service,
-                ConfigView.fallbackView(), harness.contributions, logger, List::of, List::of);
+        harness = new OfflineApi(tempDir.resolve("maps").resolve("templates"),
+                FakeWorldPort.immediate(), MODE);
     }
 
     /** 假会话服务:记录 create 收到的 spec(合并序断言面;镜像 MiniGameApiImplTest 假件)。 */
@@ -102,23 +81,19 @@ class SessionComponentContributionTest {
         }
     }
 
-    private boolean hasSevere(String fragment) {
-        return listenerLogs.stream().anyMatch(r -> r.getLevel() == Level.SEVERE
-                && String.valueOf(r.getMessage()).contains(fragment));
-    }
-
     // ── ★51 通道一·全局:收录 → 合并(序)→ 摘除 ────────────────────────
 
     @Test
     void providerContributionMergedIntoEveryNewSessionInOrder() {
         SessionComponentContributionRegistry contributions = harness.contributions;
         SessionProbeComponent.Spec providerSpec = new SessionProbeComponent.Spec(new ArrayList<>());
-        contributions.register("provider-plugin", List.of(providerSpec));
+        harness.api.registerSessionComponents(TestPlugins.named("provider-plugin"),
+                List.of(providerSpec));
 
-        // 合并序(provider 注册序 → recipe.extra):假服务记录 spec 断言输入面
+        // 合并序(注册序 → recipe.extra):假服务记录 spec 断言输入面
         SpecRecordingService recorder = new SpecRecordingService();
         MiniGameApiImpl recording = new MiniGameApiImpl(recorder, harness.modes, harness.maps,
-                harness.capabilities, harness.globalEvents, contributions, Runnable::run);
+                harness.capabilities, harness.globalEvents, contributions, Runnable::run, () -> "");
         recording.createSession(SessionRecipe.of(MODE_ID, null));
         SessionProbeComponent.Spec extraSpec = new SessionProbeComponent.Spec(new ArrayList<>());
         recording.createSession(new SessionRecipe(MODE_ID, Optional.empty(), List.of(),
@@ -137,30 +112,31 @@ class SessionComponentContributionTest {
     }
 
     @Test
-    void badProviderRejectedSeverelyAndSessionsContinue() {
-        ProviderServiceListener listener = listener();
+    void badContributionFailsLoudlyAndRegistrationRejects() {
         SessionComponent.Specification<?> bad = new SessionProbeComponent.Spec(new ArrayList<>())
                 .requires(UnresolvedSessionComponent.class);   // 无人提供 → 干跑校验必失败
 
-        listener.ingestContributions("bad-plugin",
-                () -> List.<SessionComponent.Specification<?>>of(bad));
-
-        assertTrue(hasSevere("拒收录"), "坏 provider SEVERE 拒收录(D14)");
-        assertTrue(harness.contributions.isEmpty(), "贡献不进默认面");
+        ComponentDependencyException thrown = assertThrows(ComponentDependencyException.class,
+                () -> harness.api.registerSessionComponents(TestPlugins.named("bad-plugin"),
+                        List.<SessionComponent.Specification<?>>of(bad)),
+                "坏贡献响亮上抛(★v1.5:显式注册可捕获,onEnable 失败 = 拒载信号)");
+        assertTrue(thrown.getMessage().contains("缺必需依赖"), "点名缺失类型: " + thrown.getMessage());
+        assertTrue(harness.contributions.isEmpty(), "贡献不进默认面(失败不留半收录态)");
         assertDoesNotThrow(() -> harness.api.createSession(SessionRecipe.of(MODE_ID, null)),
-                "会话照常(D14:拒收录不扰动建会话)");
+                "建会话照常(收录闸失败不扰动建会话)");
     }
 
     @Test
     void providerRemovalStopsMergingIntoNewSessions() {
-        harness.contributions.register("provider-plugin",
+        var provider = TestPlugins.named("provider-plugin");
+        harness.api.registerSessionComponents(provider,
                 List.of(new SessionProbeComponent.Spec(new ArrayList<>())));
         harness.api.createSession(SessionRecipe.of(MODE_ID, null));
         assertTrue(harness.service.all().iterator().next().sessionComponents()
                         .byId("SessionProbeComponent").isPresent(),
-                "前置:收录期贡献进表");
+                "前置:注册期贡献进表");
 
-        harness.contributions.unregister("provider-plugin");   // PluginDisableEvent 兜底的内核
+        harness.api.unregisterSessionComponents(provider);   // PluginDisableEvent 兜底的同一摘除口
 
         harness.api.createSession(SessionRecipe.of(MODE_ID, null));
         Session next = harness.service.all().stream().reduce((first, second) -> second).orElseThrow();

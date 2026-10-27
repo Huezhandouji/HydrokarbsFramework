@@ -59,8 +59,8 @@ public final class OfflineApi {
     public final List<LogRecord> logs = new ArrayList<>();
 
     /**
-     * @param templatesRoot  地图注册通道的模板根(可指向 @TempDir 下目录;null = 仅文件
-     *                       装载通道——注册式不可用,注册即响亮抛,MapRegistry 同口径)
+     * @param templatesRoot  地图注册通道的模板根(必填;可指向 @TempDir 下目录——
+     *                       注册期模板目录校验依据,MapRegistry 同口径)
      * @param worlds         世界端口假件(即时成功/注入失败)
      * @param modeFactories  预造模式的假工厂(注册表以 {@code register} 启动期口径收录)
      */
@@ -85,7 +85,7 @@ public final class OfflineApi {
         for (MatchMode mode : modeFactories) {
             modes.register(fixedProvider(mode));
         }
-        this.maps = templatesRoot == null ? new MapRegistry() : new MapRegistry(templatesRoot);
+        this.maps = new MapRegistry(templatesRoot);
         this.capabilities = new CapabilityRegistry();
         this.globalEvents = new SessionEventBus();
         this.contributions = new SessionComponentContributionRegistry();
@@ -103,8 +103,9 @@ public final class OfflineApi {
                 .logger(logger)
                 .build();
         this.ticker = new EngineTicker(null, service);         // Plugin 位传 null:不 start,直调驱动
+        // fallbackModeId 传空读口:与上方 service.fallbackModeId("") 同口径(空 = 摘除回退跳级直接解散)
         this.api = new MiniGameApiImpl(service, modes, maps, capabilities, globalEvents,
-                contributions, Runnable::run);
+                contributions, Runnable::run, () -> "");
     }
 
     /** 建会话并推进到首切实例就位(真服务;两拍驱动,镜像 SwitchHarness.createSession)。 */

@@ -1,7 +1,7 @@
 package com.hydrokarbs.api;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -26,9 +26,11 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hydrokarbs.engine.component.ComponentDependencyException;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.component.SessionComponentContributionRegistry;
@@ -38,7 +40,6 @@ import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
-import com.hydrokarbs.engine.port.ConfigView;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 import com.hydrokarbs.engine.session.CapabilityRegistry;
@@ -56,40 +57,44 @@ import com.hydrokarbs.engine.session.SessionService;
 import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SwitchResult;
 import com.hydrokarbs.api.view.MatchModeInfo;
-import com.hydrokarbs.listener.ProviderServiceListener;
-import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
 import com.hydrokarbs.testkit.SessionProbeComponent;
 import com.hydrokarbs.testkit.TestComponent;
+import com.hydrokarbs.testkit.TestPlugins;
 
 /**
- * 跨插件模式可注册(★20 首建;7.2 施工文档「测试与验收」五组断言,离线)。
- * fake 插件的工厂经注册面收录后:出现在目录、可被 switchMode 选中、卸载即摘除
- * 且受影响会话回退(§16.2-★20 原文口径)。
+ * 跨插件模式可注册(★20 首建;★v1.5 显式注册收敛后以 api 面承载,离线)。
+ * fake 插件的工厂经 {@code MiniGameApi#registerMode} 收录后:出现在目录、可被
+ * switchMode 选中、卸载即摘除且受影响会话回退(§16.2-★20 原文口径)。
  *
  * <ol>
- *   <li>①合法 fake provider → {@code registerProvider} → 注册表目录 +
- *       7.1 Impl {@code modes()} 含对应 {@link MatchModeInfo};</li>
+ *   <li>①合法 fake provider → {@code api.registerMode} → 注册表目录 +
+ *       Impl {@code modes()} 含对应 {@link MatchModeInfo};</li>
  *   <li>②可被 switchMode 选中:经公共面 {@code switchMode} 发起(fake SessionService
  *       记录调用;断言目标 id 与 force 语义;注册表 {@code require} 通过佐证
  *       切换阶段 A 的目标查找不拒);</li>
- *   <li>③坏 provider(缺必需依赖 / build 抛 / 重复 id)不进注册表 + SEVERE
- *       日志断言(§2.6 运行期口径:不上抛,Logger 注入构造口先例 =
- *       {@code MatchModeRegistry});</li>
- *   <li>④{@code unregisterProvider} 目录摘除 + 受影响会话恰一次回退切换
- *       (fallback 读 {@code session.fallback-mode} 配置、force 豁免,§13.4/§3.5);
- *       fallback 空(★v1.3 R3)/未注册 → 恰一次 {@code FALLBACK_DISSOLVE};
- *       {@code Rejected(SWITCH_IN_PROGRESS)} → WARN 放弃不自旋(§14.17);</li>
- *   <li>⑤主仓生产源零第三方示例字面量 {@code their_mode}(§14.13:收录是
+ *   <li>③坏 provider(缺必需依赖 / build 抛 / 重复 id)响亮抛 + 不进注册表
+ *       (§2.6 注册闸;★v1.5 起显式注册统一响亮口径——调用方可捕获,onEnable
+ *       注册失败 = 拒载信号;原事件通道「SEVERE + 跳过/忽略后来者」口径随
+ *       ServicesManager 通道退场);</li>
+ *   <li>④{@code api.unregisterMode} 目录摘除 + 受影响会话恰一次回退切换
+ *       (fallback 经 Impl 构造的 {@code Supplier<String>} 读口、force 豁免,
+ *       §13.4/§3.5);fallback 空(★v1.3 R3)/未注册 → 恰一次
+ *       {@code FALLBACK_DISSOLVE};{@code Rejected(SWITCH_IN_PROGRESS)} → WARN
+ *       放弃不自旋(§14.17);越权摘他人 id 响亮拒、未知 id 幂等 no-op;</li>
+ *   <li>④c D14 通道一显式面:{@code registerSessionComponents}/
+ *       {@code unregisterSessionComponents} 按提供方插件键收录/摘除(14.38);</li>
+ *   <li>⑤主仓生产源零第三方示例字面量 {@code their_mode}(§14.13:注册是
  *       「注册表被动收」,示例只住 examples/TheirPlugin;§16.2-4 禁词精神)。</li>
  * </ol>
  *
- * <p><b>事件路径联调口径(7.2 施工文档测试与验收第 5 条)</b>:
- * {@code ServiceRegisterEvent}/{@code ServiceUnregisterEvent} 全链需活服派发,
- * 离线以公开内核 {@code ingestProvider}/{@code removeProvider} 代测(Bukkit 事件
- * 方法只是一层类型过滤薄壳)+ 构造期收录源注入口代测先启补收录;
- * 事件全链由 runServer 冒烟覆盖(冒烟归后续独立阶段,不在本子阶段)。
+ * <p><b>★v1.5 迁移说明(24 号修正案)</b>:原 {@code ProviderServiceListener} 内核
+ * 直调({@code ingestProvider}/{@code removeProvider}/贡献两内核)与先启补收录命题
+ * 随 ServicesManager 通道退场——注册/摘除/回退编排全部迁入 {@code MiniGameApiImpl}
+ * 显式面,本测试改经 api 面逐一承载既有命题(断言语义零放宽;响亮化命题见 ③)。
+ * {@code Plugin} 以动态代理占位(身份键;{@link TestPlugins} 先例)。零 Bukkit 静态调用。
  *
  * <p><b>⑤落定说明</b>:断言 ⑤ 以测试内源码扫描实现(随全量测试常驻门禁,而非
  * 一次性 grep);fake 模式 id 取中性 {@code probe_mode},与其分居主仓 src/(零
@@ -100,13 +105,14 @@ class ThirdPartyModeRegistrationTest {
     /** 测试用第三方模式 id(中性;their_mode 字面量只住 examples/,⑤ 守卫)。 */
     private static final String PROBE = "probe_mode";
     private static final String FALLBACK = "fallback_mode";
-    private static final String FALLBACK_KEY = "session.fallback-mode";
 
     private final List<LogRecord> logs = new ArrayList<>();
     private final List<String> hookLog = new ArrayList<>();
     private MatchModeRegistry registry;
     private Logger logger;
     private SessionComponentContributionRegistry contributions;
+    /** Impl 类级日志的捕获 handler(回退 WARN/版本打点断言面;用毕摘除防泄漏)。 */
+    private Handler implLogHandler;
 
     @BeforeEach
     void setUp() {
@@ -130,6 +136,14 @@ class ThirdPartyModeRegistrationTest {
         // 配置源:全回落缺省(装载链由 ConfigRepositoryTest 覆盖,此处只测注册面)
         registry = new MatchModeRegistry(id -> OfflineAssembly.cfg(), logger);
         contributions = new SessionComponentContributionRegistry();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (implLogHandler != null) {
+            Logger.getLogger(MiniGameApiImpl.class.getName()).removeHandler(implLogHandler);
+            implLogHandler = null;
+        }
     }
 
     // ── 假件 ─────────────────────────────────────────────────────
@@ -275,24 +289,32 @@ class ThirdPartyModeRegistrationTest {
         }
     }
 
-    /** fallback 配置视图:仅 {@code session.fallback-mode} 可读,其余全回落(泛型视图像素级对齐实现口径)。 */
-    private static ConfigView configWithFallback(String fallbackMode) {
-        return new ConfigView() {
+    /** 捕获 {@code MiniGameApiImpl} 类级日志(回退 WARN/版本协商打点断言面;@AfterEach 摘除)。 */
+    private void captureImplLog() {
+        implLogHandler = new Handler() {
             @Override
-            @SuppressWarnings("unchecked")
-            public <T> T get(String path, T def) {
-                return path.equals(FALLBACK_KEY) ? (T) fallbackMode : def;
+            public void publish(LogRecord record) {
+                logs.add(record);
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
             }
         };
+        Logger.getLogger(MiniGameApiImpl.class.getName()).addHandler(implLogHandler);
     }
 
-    private boolean hasSevere(String fragment) {
-        return logs.stream().anyMatch(r -> r.getLevel() == Level.SEVERE
-                && String.valueOf(r.getMessage()).contains(fragment));
+    private boolean hasLevelContaining(Level level, String fragment) {
+        return logs.stream().anyMatch(r -> r.getLevel() == level
+                && formatted(r).contains(fragment));
     }
 
     /** 参数化日志行取格式化文本(java.util.logging 的 {0} 占位需 MessageFormat 展开)。 */
-    private static String formatted(java.util.logging.LogRecord record) {
+    private static String formatted(LogRecord record) {
         Object[] params = record.getParameters();
         return params == null ? String.valueOf(record.getMessage())
                 : java.text.MessageFormat.format(record.getMessage(), params);
@@ -302,15 +324,16 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void registeredProviderEntersCatalogAndApiView() {
-        registry.registerProvider(provider(PROBE, Set.of("demo")));
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(),
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
+        api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
 
         assertEquals(PROBE, registry.require(PROBE).id(), "注册表目录含其 id(§16.2-★20)");
         assertTrue(registry.all().stream().anyMatch(mode -> mode.id().equals(PROBE)));
 
-        // 经 7.1 Impl modes():第三方模式入目录后服主可见(7.2 javadoc 句;§7.1)
-        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(), new CapabilityRegistry(), new SessionEventBus(),
-                new SessionComponentContributionRegistry(), Runnable::run);
+        // 经 Impl modes():第三方模式入目录后服主可见(§7.1)
         Optional<MatchModeInfo> info = api.mode(PROBE);
         assertTrue(info.isPresent(), "mode(id) 命中第三方模式");
         assertEquals(PROBE, info.get().id());
@@ -322,20 +345,24 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void thirdPartyModeSelectableThroughApiSwitch() {
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        registry.registerProvider(probe);
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new CapabilityRegistry(), new SessionEventBus(),
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
+        api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
 
         // 切换阶段 A 目标查找口(require,§3.2-A1)对第三方 id 不拒——「可被选中」的静态前提
         assertDoesNotThrow(() -> registry.require(PROBE));
 
         RecordingService fake = new RecordingService();
         fake.setSessions(List.of(OfflineAssembly.session("s1")));
-        MiniGameApiImpl api = new MiniGameApiImpl(fake, registry, new MapRegistry(),
+        MiniGameApiImpl switching = new MiniGameApiImpl(fake, registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new CapabilityRegistry(), new SessionEventBus(),
-                new SessionComponentContributionRegistry(), Runnable::run);
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
 
         Handoff payload = Handoff.empty();
-        CompletableFuture<SwitchResult> future = api.switchMode("s1",
+        CompletableFuture<SwitchResult> future = switching.switchMode("s1",
                 new MatchModeSelection(PROBE, Optional.empty(), true), payload);
 
         SwitchResult result = future.join();                       // 直接执行器 → 内联完成
@@ -348,37 +375,55 @@ class ThirdPartyModeRegistrationTest {
         assertSame(payload, call.payload(), "交接载荷原样透传");
     }
 
-    // ── ③ 坏 provider:SEVERE + 跳过 + 不进注册表 ─────────────────
+    // ── ③ 坏 provider:响亮抛 + 不进注册表(★v1.5 显式注册统一响亮口径) ──
 
     @Test
-    void dependencyFailureIsSevereSkippedAndNotRegistered() {
+    void dependencyFailureIsLoudAndNotRegistered() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(),
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         MatchModeProvider bad = provider("bad_probe", Set.of("demo"),
                 TestComponent.requiring(hookLog, Unresolved.class));   // 无人提供 → 坏模板
 
-        registry.registerProvider(bad);                                // 不上抛(运行期口径)
+        ComponentDependencyException thrown = assertThrows(ComponentDependencyException.class,
+                () -> api.registerMode(TestPlugins.named("their-plugin"), bad),
+                "依赖校验失败响亮抛(★v1.5:显式注册可捕获,onEnable 失败 = 拒载信号)");
+        assertNotNull(thrown.getMessage(), "异常带 detail(引擎 verifyDependencies 既有口径)");
 
         assertThrows(NoSuchElementException.class, () -> registry.require("bad_probe"),
                 "坏模板不进注册表(§2.6)");
-        assertTrue(hasSevere("bad_probe"), "SEVERE 点名坏模式 id");
         assertTrue(registry.all().isEmpty());
     }
 
     @Test
-    void buildFailureIsSevereSkippedAndNotRegistered() {
-        registry.registerProvider(brokenProvider("broken_probe"));     // build 抛 → 同路径
+    void buildFailureIsLoudAndNotRegistered() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(),
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
+
+        assertThrows(IllegalStateException.class,
+                () -> api.registerMode(TestPlugins.named("their-plugin"), brokenProvider("broken_probe")),
+                "第三方工厂 build 异常原样上抛(★v1.5 响亮口径)");
 
         assertThrows(NoSuchElementException.class, () -> registry.require("broken_probe"));
-        assertTrue(hasSevere("broken_probe"), "第三方工厂 build 异常也 SEVERE + 跳过(7.2 步骤 1)");
-        assertTrue(registry.all().isEmpty());
+        assertTrue(registry.all().isEmpty(), "build 失败不留半注册态");
     }
 
     @Test
-    void duplicateIdAtRuntimeIsSevereAndIgnored() {
-        registry.registerProvider(provider(PROBE, Set.of("first")));
-        registry.registerProvider(provider(PROBE, Set.of("second")));  // 后来者:不抛(双口径另一半)
+    void duplicateIdAtRegistrationIsLoudAndKeepsFirstArrival() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(),
+                new SessionComponentContributionRegistry(), Runnable::run, () -> "");
+        api.registerMode(TestPlugins.named("first-plugin"), provider(PROBE, Set.of("first")));
 
-        assertEquals(Set.of("first"), registry.require(PROBE).mapTags(), "忽略后来者,先到者保留");
-        assertTrue(hasSevere("重复的模式 id"), "运行期重复 id 走 SEVERE(§7.2 要点 3)");
+        assertThrows(IllegalStateException.class,
+                () -> api.registerMode(TestPlugins.named("second-plugin"), provider(PROBE, Set.of("second"))),
+                "重复 id 响亮抛(绝不静默覆盖,§2.6/§12.2)");
+
+        assertEquals(Set.of("first"), registry.require(PROBE).mapTags(), "先到者保留");
         assertEquals(1, registry.all().size());
     }
 
@@ -386,20 +431,19 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void unregisterRemovesCatalogAndRedirectsAffectedSessionToFallback() {
-        registry.registerProvider(provider(FALLBACK, Set.of("demo")));  // fallback 先注册(可用性判定)
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        registry.registerProvider(probe);
-
         RecordingService fake = new RecordingService();
+        MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
+        api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
+        var provider = TestPlugins.named("their-plugin");
+        api.registerMode(provider, provider(PROBE, Set.of("demo")));   // fallback 先注册(可用性判定)
+
         Session affected = new FixedCurrentSession("s-affected", registry.require(PROBE));
         Session unaffected = OfflineAssembly.session("s-unaffected");
         fake.setSessions(List.of(affected, unaffected));
-        ProviderServiceListener listener = new ProviderServiceListener(registry, fake,
-                configWithFallback(FALLBACK), contributions, logger, List::of, List::of);
+        api.unregisterMode(provider, PROBE);
 
-        Set<String> removed = listener.removeProvider(probe);
-
-        assertEquals(Set.of(PROBE), removed, "返回被摘 id 集");
         assertFalse(registry.all().stream().anyMatch(mode -> mode.id().equals(PROBE)),
                 "目录摘除(modes() 视角同源,① 已验通路)");
         assertEquals(1, fake.switches.size(), "受影响会话恰一次回退(不重复编排)");
@@ -414,14 +458,15 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void unregisterWithBlankFallbackDissolvesSession() {
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        registry.registerProvider(probe);
         RecordingService fake = new RecordingService();
+        MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "");   // R3:默认空 = 无 fallback
+        var provider = TestPlugins.named("their-plugin");
+        api.registerMode(provider, provider(PROBE, Set.of("demo")));
         fake.setSessions(List.of(new FixedCurrentSession("s1", registry.require(PROBE))));
-        ProviderServiceListener listener = new ProviderServiceListener(registry, fake,
-                ConfigView.fallbackView(), contributions, logger, List::of, List::of);              // R3:默认空 = 无 fallback
 
-        listener.removeProvider(probe);
+        api.unregisterMode(provider, PROBE);
 
         assertEquals(1, fake.dissolves.size(), "fallback 空 → 直接二级 dissolve(★v1.3 R3 空值语义)");
         assertEquals(new DissolveCall(new SessionId("s1"), DissolveReason.FALLBACK_DISSOLVE),
@@ -431,14 +476,15 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void unregisterWithUnregisteredFallbackDissolvesSession() {
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        registry.registerProvider(probe);
         RecordingService fake = new RecordingService();
+        MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "ghost_mode");   // 指向未注册 id → 不可用
+        var provider = TestPlugins.named("their-plugin");
+        api.registerMode(provider, provider(PROBE, Set.of("demo")));
         fake.setSessions(List.of(new FixedCurrentSession("s1", registry.require(PROBE))));
-        ProviderServiceListener listener = new ProviderServiceListener(registry, fake,
-                configWithFallback("ghost_mode"), contributions, logger, List::of, List::of);       // 指向未注册 id → 不可用
 
-        listener.removeProvider(probe);
+        api.unregisterMode(provider, PROBE);
 
         assertEquals(1, fake.dissolves.size());
         assertEquals(DissolveReason.FALLBACK_DISSOLVE, fake.dissolves.get(0).reason());
@@ -446,72 +492,76 @@ class ThirdPartyModeRegistrationTest {
 
     @Test
     void rejectedFallbackSwitchWarnsAndDoesNotSpin() {
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        registry.registerProvider(probe);
-        registry.registerProvider(provider(FALLBACK, Set.of("demo")));
+        captureImplLog();                          // 回退 WARN 走 Impl 类级日志
         RecordingService fake = new RecordingService();
+        MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
+        api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
+        var provider = TestPlugins.named("their-plugin");
+        api.registerMode(provider, provider(PROBE, Set.of("demo")));
         fake.scripted = new SwitchResult.Rejected(SwitchResult.Reason.SWITCH_IN_PROGRESS, "in flight");
         fake.setSessions(List.of(new FixedCurrentSession("s1", registry.require(PROBE))));
-        ProviderServiceListener listener = new ProviderServiceListener(registry, fake,
-                configWithFallback(FALLBACK), contributions, logger, List::of, List::of);
 
-        listener.removeProvider(probe);
+        api.unregisterMode(provider, PROBE);
 
         assertEquals(1, fake.switches.size(), "拒绝后放弃,不在事件栈自旋重试(§14.17)");
-        assertTrue(logs.stream().anyMatch(r -> r.getLevel() == Level.WARNING
-                && String.valueOf(r.getMessage()).contains("SWITCH_IN_PROGRESS")), "WARN 观测拒绝");
+        assertTrue(hasLevelContaining(Level.WARNING, "SWITCH_IN_PROGRESS"), "WARN 观测拒绝");
     }
 
     @Test
-    void constructorIngestsPreRegisteredProviders() {
-        // 先启场景补收录(§13.4 启动顺序表「TheirPlugin 先启」行):构造期 loadAll 路径
-        MatchModeProvider probe = provider(PROBE, Set.of("demo"));
-        new ProviderServiceListener(registry, new RecordingService(),
-                ConfigView.fallbackView(), contributions, logger, () -> List.of(probe), List::of);
+    void unregisterForeignModeIsRefusedAndUnknownIdIsNoOp() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "");
+        api.registerMode(TestPlugins.named("other-plugin"), provider(PROBE, Set.of("demo")));
+        var provider = TestPlugins.named("their-plugin");
 
-        assertEquals(PROBE, registry.require(PROBE).id(), "构造期初始收录走同一注册闸");
+        // 越权:目录里有但不是本提供方注册的(★v1.5 响亮拒)
+        IllegalStateException refused = assertThrows(IllegalStateException.class,
+                () -> api.unregisterMode(provider, PROBE),
+                "id 属于其他提供方 → 响亮拒(★v1.5)");
+        assertTrue(refused.getMessage().contains(PROBE), "detail 点名模式 id: " + refused.getMessage());
+        assertEquals(PROBE, registry.require(PROBE).id(), "越权摘除不落地");
+
+        // 未知 id:幂等 no-op(★v1.5)
+        assertDoesNotThrow(() -> api.unregisterMode(provider, "never_registered"),
+                "id 不存在 → 幂等 no-op(★v1.5)");
+        assertTrue(registry.all().size() == 1, "no-op 不扰动目录");
     }
 
-    // ── ④c D14 通道一:先启补收录与摘除半边同键(14.38 幽灵贡献守卫) ──
+    // ── ④c D14 通道一显式面:收录/摘除按提供方插件键(14.38) ──────────────
 
     @Test
-    void preRegisteredContributionsRemovedByProviderPluginKey() {
-        // 先启收录键必须 = 注册插件(生产 = RegisteredServiceProvider#getPlugin),与
-        // ServiceUnregisterEvent/PluginDisableEvent 摘除半边同键(D14/14.38)——
-        // 否则提供方 disable 后贡献永不摘除(幽灵贡献,重注册撞 id 被拒)。
+    void registeredContributionsRemovedByProviderPluginKey() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "");
+        var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> spec = new SessionProbeComponent.Spec(new ArrayList<>());
-        Object pluginKey = new Object();            // 离线身份桩(零 Bukkit;生产 = Plugin 实例)
-        ProviderServiceListener listener = new ProviderServiceListener(registry, new RecordingService(),
-                ConfigView.fallbackView(), contributions, logger, List::of,
-                () -> List.of(new ProviderServiceListener.KeyedComponentProvider(pluginKey,
-                        () -> List.<SessionComponent.Specification<?>>of(spec))));
+        api.registerSessionComponents(provider, List.of(spec));
 
-        assertFalse(contributions.isEmpty(), "前置:构造期已收录先启提供方贡献");
-        listener.removeContributions(pluginKey);    // 摘除半边同键(ServiceUnregister/PluginDisable 兜底)
-        assertTrue(contributions.isEmpty(), "按注册插件键摘除先启贡献(D14/14.38)");
+        assertFalse(contributions.isEmpty(), "前置:显式注册已收录贡献");
+        api.unregisterSessionComponents(provider);   // 插件 disable 兜底同键(14.38)
+        assertTrue(contributions.isEmpty(), "按提供方插件键摘除(D14/14.38)");
     }
 
     @Test
-    void reRegistrationReplacesPreRegisteredContributionsWithoutGhostCollision() {
-        // 先启收录 → 提供方重注册(同键)→ 干跑合并不得含旧条目(否则同组件 id 撞车
-        // → 新贡献被 SEVERE 拒收录,14.38 幽灵贡献的次生面)。
+    void reRegistrationReplacesContributionsWithoutGhostCollision() {
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "");
+        var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> first = new SessionProbeComponent.Spec(new ArrayList<>());
         SessionComponent.Specification<?> second = new SessionProbeComponent.Spec(new ArrayList<>());
-        Object pluginKey = new Object();
-        ProviderServiceListener listener = new ProviderServiceListener(registry, new RecordingService(),
-                ConfigView.fallbackView(), contributions, logger, List::of,
-                () -> List.of(new ProviderServiceListener.KeyedComponentProvider(pluginKey,
-                        () -> List.<SessionComponent.Specification<?>>of(first))));
+        api.registerSessionComponents(provider, List.of(first));
 
-        listener.ingestContributions(pluginKey,
-                () -> List.<SessionComponent.Specification<?>>of(second));   // 同键重注册(等价 ServiceRegisterEvent)
+        api.registerSessionComponents(provider, List.of(second));   // 同提供方重注册(幂等重收录)
 
-        assertFalse(logs.stream().anyMatch(r -> r.getLevel() == Level.SEVERE),
-                "同键重注册不撞旧条目(干跑合并干净)");
         assertEquals(List.of(second), contributions.merged(), "合并视图 = 新贡献(旧条目被同键摘除)");
     }
 
-    // ── ④b ★41 增款(★v1.1-D7;7.5 施工文档步骤 3/12):版本协商打点 ──
+    // ── ④b ★41 增款(★v1.1-D7):版本协商打点(原事件收录打点迁入 api 注册点) ──
 
     @Test
     void requiredApiVersionDefaultsToOne() {
@@ -521,7 +571,11 @@ class ThirdPartyModeRegistrationTest {
     }
 
     @Test
-    void ingestLogsDeclaredRequiredApiVersion() {
+    void registerModeLogsDeclaredRequiredApiVersion() {
+        captureImplLog();
+        MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
+                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new SessionEventBus(), contributions, Runnable::run, () -> "");
         MatchModeProvider demanding = new MatchModeProvider() {
             @Override
             public String id() {
@@ -542,15 +596,12 @@ class ThirdPartyModeRegistrationTest {
                 return 3;                       // 声明要求 v3 面(地图注册等)
             }
         };
-        ProviderServiceListener listener = new ProviderServiceListener(registry, new RecordingService(),
-                ConfigView.fallbackView(), contributions, logger, List::of, List::of);
 
-        listener.ingestProvider(demanding);
+        api.registerMode(TestPlugins.named("their-plugin"), demanding);
 
-        assertTrue(logs.stream().anyMatch(r -> r.getLevel() == Level.INFO
-                        && formatted(r).contains("requiredApiVersion=3")),
-                "收录点对每个 Provider 记录其声明要求(D7/14.36 注册处打点)");
-        assertEquals(PROBE, registry.require(PROBE).id(), "声明高版本不拒收录(收录照常,打点供诊断)");
+        assertTrue(hasLevelContaining(Level.INFO, "requiredApiVersion=3"),
+                "注册点对每个 Provider 记录其声明要求(D7/14.36 注册处打点)");
+        assertEquals(PROBE, registry.require(PROBE).id(), "声明高版本不拒收录(注册照常,打点供诊断)");
     }
 
     // ── ⑤ 主仓生产源零第三方示例字面量 ───────────────────────────

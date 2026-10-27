@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -33,17 +32,14 @@ import com.hydrokarbs.testkit.TestPlugins;
  * 地图注册通道端到端(★54~★55,★v1.2;7.5 施工文档步骤 8/11;20-D1~D7,离线):
  * 注册({@code registerMap})→ 目录列出 → 可被切换选中并开局 → 摘除
  * ({@code unregisterMap});坏声明响亮拒绝(模板缺失/重复 id 点名先到者);
- * 正用摘除被拒且地图照常可用;注册式不经 reload(20-D5 以 {@code replace}
- * 只动文件式半边机械承载)。
+ * 正用摘除被拒且地图照常可用(摘除拒绝是特性,不是障碍)。
  *
  * <p><b>离线口径</b>:{@code Plugin} 以动态代理占位(身份键;镜像
  * {@code FakeWorldPort#proxyWorld} 的「测试类型签名引用 Bukkit 类型、传代理不碰
  * Bukkit 静态」先例);模板目录以 {@code @TempDir} 落盘;切换经真会话服务 +
  * {@link FakeWorldPort}(复用 testkit,镜像 SwitchHarness 装配)。
- * <b>注册式不经 reload 口径注(20-D5/7.5 决策 14)</b>:框架当前无 reload 命令实现
- * (2.2 只落启动期一次装载);「不经 reload 触碰」的机械保证 = 文件装载
- * {@code replace} 整表替换只动文件式半边、注册式原样保留(本测试末组),
- * 未来 reload 落地时本断言即其验收面。
+ * (原「注册式不经 reload」段与文件通道测试随文件式装载通道删除收敛——
+ * 单注册通道语义现由 MapRegistryTest/本类承载。)
  */
 class MapRegistrationTest {
 
@@ -75,10 +71,10 @@ class MapRegistrationTest {
         harness.api.registerMap(provider, OfflineApi.map("their_arena2", OfflineApi.TAG));
         assertEquals("their_arena", info.id(), "成功返回 MapInfo 快照(07 §7.1)");
         assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("their_arena")),
-                "api.maps() 列出注册式地图(与文件式同目录,20-D6)");
+                "api.maps() 列出注册式地图(20-D6)");
         assertTrue(harness.maps.byId("their_arena").isPresent(), "目录 byId 命中(可被切换解析)");
 
-        // 开局:首切换按标签挑图(注册序尾接在文件序后;空目录 = 注册图即首张)
+        // 开局:首切换按标签挑图(注册序;空目录 = 注册图即首张)
         Session session = harness.createSession("s1", MODE_ID);
         assertEquals("their_arena", session.currentInstance().orElseThrow().view().map().id(),
                 "开局落在注册式地图上(★54「可被 switchMode 选中并开局」)");
@@ -144,19 +140,6 @@ class MapRegistrationTest {
     }
 
     @Test
-    void duplicateIdAgainstFileMapNamesFirstArriver() throws Exception {
-        harness.maps.replace(List.of(OfflineApi.map("shared", OfflineApi.TAG)));   // 文件式先到
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("shared"));
-
-        IllegalStateException duplicate = assertThrows(IllegalStateException.class,
-                () -> harness.api.registerMap(provider, OfflineApi.map("shared", OfflineApi.TAG)),
-                "重复 id(与文件式撞名)→ 响亮抛(20-D3)");
-        assertTrue(duplicate.getMessage().contains("先到者")
-                && duplicate.getMessage().contains("文件装载"), "点名先到者与其来源: " + duplicate.getMessage());
-        assertEquals(1, harness.api.maps().size(), "先到者保留,后来者不入目录");
-    }
-
-    @Test
     void duplicateIdAgainstRegisteredMapNamesFirstArriver() throws Exception {
         Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("shared"));
         harness.api.registerMap(provider, OfflineApi.map("shared", OfflineApi.TAG));   // 插件先到
@@ -164,37 +147,9 @@ class MapRegistrationTest {
         IllegalStateException duplicate = assertThrows(IllegalStateException.class,
                 () -> harness.api.registerMap(TestPlugins.named("another-plugin"),
                         OfflineApi.map("shared", OfflineApi.TAG)),
-                "注册式对注册式撞名 → 同一闸响亮抛(同一命名空间,20-D3)");
+                "重复 id → 同一闸响亮抛(同一注册通道,20-D3)");
         assertTrue(duplicate.getMessage().contains("先到者")
                 && duplicate.getMessage().contains("插件注册"), "点名先到者与其来源: " + duplicate.getMessage());
-    }
-
-    // ── 20-D4:文件式地图不得经 unregisterMap 摘除 ────────────────────────
-
-    @Test
-    void unregisterFileLoadedMapIsRejected() {
-        harness.maps.replace(List.of(OfflineApi.map("file_map", OfflineApi.TAG)));
-
-        IllegalStateException rejected = assertThrows(IllegalStateException.class,
-                () -> harness.api.unregisterMap(provider, "file_map"),
-                "文件式地图(id 来自 maps/*.yml)→ 拒绝(20-D4)");
-        assertTrue(rejected.getMessage().contains("文件式"), "点名文件式来源: " + rejected.getMessage());
-        assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("file_map")));
-    }
-
-    // ── 20-D5:注册式不经 reload 触碰(replace 只动文件式半边) ─────────────
-
-    @Test
-    void reloadKeepsRegisteredMapsUntouched() throws Exception {
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("their_arena"));
-        harness.api.registerMap(provider, OfflineApi.map("their_arena", OfflineApi.TAG));
-
-        harness.maps.replace(List.of(OfflineApi.map("fresh_file_map", OfflineApi.TAG)));   // "reload"
-
-        assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("their_arena")),
-                "注册式地图不经 reload 触碰(20-D5;未来 reload 落地时本断言即验收面)");
-        assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("fresh_file_map")),
-                "文件式半边照常整表替换");
     }
 
 }

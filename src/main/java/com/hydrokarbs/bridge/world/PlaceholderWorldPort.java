@@ -1,5 +1,6 @@
 package com.hydrokarbs.bridge.world;
 
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import org.bukkit.Bukkit;
@@ -38,5 +39,12 @@ public final class PlaceholderWorldPort implements WorldPort {
     @Override
     public CompletableFuture<Void> release(WorldHandle handle) {
         return CompletableFuture.completedFuture(null);    // 引用计数与副本处置归 2.4
+    }
+
+    @Override
+    public CompletableFuture<Void> discardSession(SessionId session) {
+        Objects.requireNonNull(session, "session");
+        // 不复制模板、不建副本目录,无副本可销毁(立即完成空操作,语义与 release 同源)
+        return CompletableFuture.completedFuture(null);
     }
 }

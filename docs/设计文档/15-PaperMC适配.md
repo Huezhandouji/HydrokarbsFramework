@@ -1,8 +1,8 @@
 ## 15. PaperMC 1.21.11 适配要点(必填章节)
 
-> HydroKarbs MiniGame Framework · v1.3(现行;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
+> HydroKarbs MiniGame Framework · v1.6(现行;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册通道收敛;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
 >
-> 文档版本:v1.3(2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
+> 文档版本:v1.6(2026-10-27,修正案 24 号:显式注册收敛——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.6 澄清注(SHDF 扩展线实例,监听角色插件服务——不随 v1.6 退役;框架侧已无 ServiceRegisterEvent 监听器);其余零命中零改动,24 号);v1.4(2026-10-27,地图注册通道收敛——§15.2 文件分工注与树 maps 声明行加「地图仅注册通道」退场注(模板目录约定不变)、示例句注、热重载 maps 级随文件半边废止、★v1.2 注就地修订、解析实现要点代码块改现行 YamlCodec(readMap 已删),22 号;v1.3 于 2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
 
 ### 15.1 事件监听:Paper Event API 使用规范
 
@@ -16,7 +16,7 @@
 | `InteractionListener` | `PlayerInteractEvent` | `NORMAL` | `true` | 只处理真正生效的交互(被取消的不该起读条) |
 | `InteractionListener#onMove` | `PlayerMoveEvent` | `MONITOR` | `false` | 打断读条用的**只读观察**;高频事件,内部必须"先做廉价判断再做事" |
 | `ProtectionListener` | `InventoryClickEvent` + **`InventoryDragEvent`** | `HIGH` | `true` | ★ 只处理 `Click` 会漏掉拖拽;`HIGH` 早于 GUI 逻辑拦截 |
-| `CapabilityListener` | `ServiceRegisterEvent` / `ServiceUnregisterEvent` | `NORMAL` | `false` | ★v2:宿主插件装/卸时刷新 CapabilityRegistry(SHDF 扩展线实例:监听角色插件,见 Shdf具体玩法设计案/08-角色桥接.md) |
+| `CapabilityListener` | `ServiceRegisterEvent` / `ServiceUnregisterEvent` | `NORMAL` | `false` | ★v2:宿主插件装/卸时刷新 CapabilityRegistry(SHDF 扩展线实例:监听角色插件,见 Shdf具体玩法设计案/08-角色桥接.md)。★v1.6 澄清注(24 号):**不随 v1.6 退役**——本行为 SHDF 扩展线软依赖机制,监听对象 = 能力提供方插件服务注册;随提供方通道退场的是**框架侧** ServiceRegisterEvent 收录监听器(`ProviderServiceListener` 已删,模式/组件注册改经 api 显式四法)——框架侧已无 ServiceRegisterEvent 监听器 |
 | 调试/审计 | 任意 | `MONITOR` | `true` | 纯观察 |
 
 #### 规范清单
@@ -35,7 +35,7 @@
 
 #### 文件分工(`plugins/HydroKarbs/`)
 
-> ★v1.1 配置分工注(19-D1):**形态 B(双 jar)下玩法配置随玩法 jar**——`modes/*.yml`(玩法模式参数)与玩法 `maps/*.yml`、玩法 `maps/templates/` 归玩法插件资源(各自 `maps/` 根,"模板随地图包分发");框架 `config.yml` 管会话节律(下节;★v1.3-D5:拓扑与会话创建移宿主,框架不再持有 topology/arenas 键),通用图模板随框架 jar。形态 A(单 jar)下两者同居 `plugins/HydroKarbs/`,分工口径不变。
+> ★v1.1 配置分工注(19-D1;★v1.4 就地修订,22 号):**形态 B(双 jar)下玩法配置随玩法 jar**——`modes/*.yml`(玩法模式参数)与玩法 `maps/templates/` 归玩法插件资源(各自 `maps/` 根,"模板随地图包分发";**地图仅注册通道**——框架不扫不读 `maps/*.yml`,玩法 jar 若自带此类文件,纯为玩法自读的声明数据,发现机制 = §13.11 注册);框架 `config.yml` 管会话节律(下节;★v1.3-D5:拓扑与会话创建移宿主,框架不再持有 topology/arenas 键),通用图模板随框架 jar。形态 A(单 jar)下两者同居 `plugins/HydroKarbs/`,分工口径不变。
 
 ```
 plugins/HydroKarbs/
@@ -46,9 +46,10 @@ plugins/HydroKarbs/
 │   ├── team_deathmatch.yml # (SHDF 玩法线)
 │   └── boss_raid.yml       # (SHDF 玩法线)
 ├── maps/
-│   ├── lobby_main.yml      # ★v2:大厅地图(与玩法地图同格式)(SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
-│   ├── crossfire.yml       # 每张地图一个文件(SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
-│   └── templates/          # ★v2:世界模板母本(mapId 目录)
+│   └── templates/          # ★v2:世界模板母本(mapId 目录;★v1.4:约定 maps/templates/<mapId>/ 不变,
+│                           #   注册期校验根——注册声明前先解包落盘,14.39)
+│   (★v1.4:原 lobby_main.yml / crossfire.yml「每张地图一个文件」声明行已删——文件式装载退场
+│    (22 号),地图仅经注册通道进目录;示例资产见 Shdf具体玩法设计案/04、05)
 ├── (★v1.3:secrets.properties 已迁宿主——框架基线无 DB 密码;宿主自建持久化时密码文件
 │          放宿主插件自己的数据目录,21-D1)
 └── (★v1.3:lang/ 文案目录归宿主插件(框架消息文案最小化,随宿主语言包),21-D2/D3 口径)
@@ -102,27 +103,36 @@ performance:
 >
 > ★v4.1 未决(修正案 §12-Q10):**服务装配是否配置化**(services.yml 声明式)——第一版 **L0 硬编码**;该未决项登记于此、待裁决,不在本版静默决定。
 
-> 地图与模式参数的完整示例(`maps/crossfire.yml`、`modes/bomb_defusal.yml`,含 `role:` 策略块)属具体玩法内容,已迁 Shdf具体玩法设计案/05-四模式矩阵.md §5.4(配置示例);框架侧只保留其上的通用纪律——地图文件纯静态、无任何规则字段;模式文件只含可调平衡参数、不含坐标。
+> 地图与模式参数的完整示例(`maps/crossfire.yml`、`modes/bomb_defusal.yml`,含 `role:` 策略块)属具体玩法内容,已迁 Shdf具体玩法设计案/05-四模式矩阵.md §5.4(配置示例;★v1.4:该 yml 现为 Shdf 侧存档资产——框架侧地图不进配置装载,声明以 `MapDefinition` 纯静态值经注册通道交付,若宿主以 yml 承载声明数据则由宿主自理解析,22 号);框架侧只保留其上的通用纪律——地图声明纯静态、无任何规则字段;模式文件只含可调平衡参数、不含坐标。
 
 #### 解析实现要点
 
 ```java
 package com.hydrokarbs.bridge.config;
 
-/** YAML → 不可变 record 的唯一编解码点。★ 解析必须在虚拟线程上做。 */
+/** YAML → 不可变模型的唯一编解码点。★ 解析必须在虚拟线程上做。
+ *  ★v1.4:原 readMap(地图文件 → MapDefinition)读口随文件式地图装载退场(22 号)——
+ *   唯一读口只剩 readMode(模式/主配置文件 → 原始映射,交 MatchModeConfigLoader)。 */
 public final class YamlCodec {
 
-    private final Yaml yaml = new Yaml();      // SnakeYAML(Paper 自带)
+    /** 每次解析新建解析器实例(SnakeYAML 实例非线程安全;Paper 自带,经 paper-api 传递依赖)。 */
+    private Yaml newParser() { return new Yaml(); }
 
-    /** 每张地图一个文件:读 → 校验 → 转 record。错误信息必须带文件名与行号。 */
-    public MapDefinition readMap(Path file) {
+    /** 读模式/主配置文件:产出原始映射(空文件 → 空 Map,可用——§15.2 铁律 1)。
+     *  值级容错(缺键默认值/非法值降级+警告)不在这里,在配置视图——本方法只负责「文件 → 映射」。 */
+    public Map<String, Object> readMode(Path file) {
         try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            var root = yaml.<Map<String, Object>>load(reader);
-            return MapDefinition.from(root, file.getFileName().toString());   // 内含校验
+            Object root = newParser().load(reader);
+            if (root == null) return Map.of();                          // 空文件 = 空映射
+            if (!(root instanceof Map<?, ?> map))                       // 根节点必须是映射
+                throw new ConfigException("根节点必须是映射: " + file);
+            @SuppressWarnings("unchecked")
+            var typed = (Map<String, Object>) map;
+            return typed;
         } catch (IOException e) {
-            throw new ConfigException("读地图文件失败: " + file, e);
+            throw new ConfigException("读取配置文件失败: " + file, e);
         } catch (RuntimeException e) {
-            throw new ConfigException("地图文件格式错误: " + file, e);        // ★ 带上文件名
+            throw new ConfigException("配置文件格式错误: " + file + ": " + 行号(e), e);  // ★ 带文件名与行号(SnakeYAML 定位自带 line/column)
         }
     }
 }
@@ -132,9 +142,10 @@ public final class YamlCodec {
 1. **缺键必须有默认值**:`cfg.getInt("rounds.best-of", 13)`,绝不裸取。
 2. **非法值降级 + 警告,不崩**:`rounds.best-of: -5` → 用默认 13 并 `WARN`。
 3. **加载期校验(fail-fast 但"局部失败")**:单张地图失败只跳过该图并 SEVERE;**切换前**若该图不满足所选模式(`validateMap` 非空),拒绝切换并打印缺失项——不静默降级。
+   (★v1.4:前半句「单张地图失败只跳过该图」随文件式装载退场失效——地图不进配置装载,仅注册通道;配置/模式文件解析失败经 `ConfigException` 响亮口径,22 号)
 
-**热重载**:`/sm reload` 分级:`config`(引擎/会话;新会话生效)/ `modes`(含 lobby.yml;进行中实例不受影响)/ `maps`(有会话正用该图则拒绝)。虚拟线程解析 → 主线程原子替换 `MapRegistry` 引用。(注:modes/maps 两级涉及的 lobby.yml、lobby_main.yml、crossfire.yml 属 SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
-> ★v1.2 注(20-D5):`maps` 级 reload **只触碰文件式地图**;注册式地图(经 `MiniGameApi#registerMap`)不经 reload——声明所有权在插件,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除)。模板落盘口径(20-D2):注册式地图的模板解析路径仍为框架数据目录 `maps/templates/<mapId>/`,宿主注册前自行解包(`saveResource`)落盘,注册期校验目录存在(14.39)。
+**热重载**:`/sm reload` 分级:`config`(引擎/会话;新会话生效)/ `modes`(含 lobby.yml;进行中实例不受影响)。虚拟线程解析(仅 config/modes)→ 回主线程后调用 `loadAll` 换引用。(★v1.4:原 `maps` 级 reload 随文件式装载退场——地图仅注册通道,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除;20-D5 口径,22 号)。(注:modes 一级涉及的 lobby.yml 属 SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
+> ★v1.2 注(20-D5;★v1.4 就地修订,22 号):~~`maps` 级 reload **只触碰文件式地图**~~(**★v1.4:`maps` 级 reload 随文件式装载退场,该分级随之取消——地图仅注册通道**);注册式地图(经 `MiniGameApi#registerMap`)向来不经 reload——声明所有权在插件,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除)。模板落盘口径(20-D2)**不变**:注册式地图的模板解析路径仍为框架数据目录 `maps/templates/<mapId>/`,宿主注册前自行解包(`saveResource`)落盘,注册期校验目录存在(14.39)。
 > ★v4 未决(变更指示 §11-Q4):**会话组件热替换/热重载语义**——第一版**不支持**:本节三级 reload 不覆盖会话组件表(装配来源是 L0 在 `SessionService.create` 内按配置构建的 `SessionSpec.sessionComponents`,§3.8/§6.4);该未决项登记于此、待裁决,不在本版静默决定。
 >
 > ★v4.1 未决(修正案 §12-Q11):**服务热替换/热重载语义**——第一版**不支持**:进程生命周期 = 插件生命周期,本节三级 reload 不触及服务层。该未决项登记于此、待裁决,不在本版静默决定。

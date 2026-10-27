@@ -32,12 +32,23 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.bridge.world.WorldLoader;
 import com.hydrokarbs.bridge.world.WorldPortImpl;
+import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.ResetStrategy;
 import com.hydrokarbs.engine.port.WorldHandle;
+import com.hydrokarbs.engine.session.CapabilityRegistry;
+import com.hydrokarbs.engine.session.DissolveReason;
+import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
+import com.hydrokarbs.engine.session.SessionPolicy;
+import com.hydrokarbs.engine.session.SessionServiceImpl;
+import com.hydrokarbs.engine.session.SessionSpec;
+import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.map.MapDefinition;
+import com.hydrokarbs.map.MapRegistry;
 import com.hydrokarbs.map.RegionSet;
 import com.hydrokarbs.testkit.FakeWorldPort;
+import com.hydrokarbs.testkit.MapTestKit;
+import com.hydrokarbs.testkit.OfflineAssembly;
 
 /**
  * ★17 世界零泄漏(16-路线图与验收 §16.2;03-会话与模式切换 §3.7;施工计划 2.4)——
@@ -49,6 +60,10 @@ import com.hydrokarbs.testkit.FakeWorldPort;
  *
  * <p>覆盖七组断言:①100 次循环零泄漏;②并发合并与计数;③两种处置策略;
  * ④缺模板;⑤准备超时;⑥REUSE_DIRTY 同会话复载不复制;⑦清残留的路径形态边界;
+ * ⑧会话销毁 discardSession(★v1.4 复用窗口 = 会话生命周期:REUSE_DIRTY 解散后
+ * 销毁、双图全覆盖、TEMPLATE_RESTORE 结论一致、幂等无害,以及一例真会话服务 ×
+ * 真端口的端到端:复制中途解散,迟到 in-flight 经 onWorldReady 守卫释放、
+ * 目录经已死短码判据删除);
  * 另附状态不变式四条(count≥1 / 同 instanceName 至多一条 / in-flight 必清 /
  * 归零必移除)、线程契约断言(装卸在主线程执行器、复制删目录在 IO 执行器)与
  * release 两种完成时机语义。
@@ -560,5 +575,192 @@ class WorldRefCountTest {
         assertTrue(logLines.stream().anyMatch(line -> line.startsWith("SEVERE|")
                         && line.contains("保留目录")),
                 "卸载失败应记 SEVERE 并注明保留目录: " + logLines);
+    }
+
+    // ── ⑧ 会话销毁 discardSession(★v1.4:复用窗口 = 会话生命周期) ──────
+
+    /**
+     * ⑧a REUSE_DIRTY 主线:释放(模拟切换离开)保留 → 再获取复载不复制(复用语义
+     * 在窗口内零改动)→ discardSession 后目录销毁、计数表清零。
+     */
+    @Test
+    void discardSessionDestroysReusedCopiesAndKeepsReuseSemanticsUntilThen(
+            @TempDir Path templates, @TempDir Path copies) throws IOException {
+        layTemplate(templates, "reuse_d", "level.dat");
+        Rig rig = Rig.direct(templates, copies);
+        MapDefinition target = map("reuse_d", ResetStrategy.REUSE_DIRTY);
+
+        // 获取 → 释放(模拟 B5 换图离开):REUSE_DIRTY 归零保留目录
+        WorldHandle first = await(rig.port.acquire(target, SESSION));
+        Path dir = copies.resolve(first.instanceName());
+        Files.writeString(dir.resolve("dirty-marker.txt"), "局内留下的痕迹");
+        awaitVoid(rig.port.release(first));
+        assertTrue(Files.isDirectory(dir), "REUSE_DIRTY 释放后保留副本目录(复用窗口仍开)");
+
+        // 再获取:复用既有目录、世界仍重新加载。未重新复制的判据 = 黑盒脏标记原样
+        // (与同族 resetStrategiesDisposeCopiesAccordingly 一致:复制会清残留重抄使
+        // 标记消失,复用则标记保留;ioTasks 无法区分——prepare 任务恒派发,复用
+        // 只跳过其内部 copyTree 段)
+        WorldHandle second = await(rig.port.acquire(target, SESSION));
+        assertTrue(Files.exists(dir.resolve("dirty-marker.txt")),
+                "复载不应重新复制(脏标记应原样保留,复用语义)");
+        assertEquals(2, rig.loader.createCount.get(), "复载仍应重新加载世界");
+        assertNotSame(first, second, "复载发放新句柄(旧条目已移除)");
+
+        // discardSession:目录销毁、计数表清零(复用窗口随会话解散关闭)
+        awaitVoid(rig.port.discardSession(SESSION));
+        assertFalse(Files.exists(dir), "解散后副本目录应销毁(无论策略)");
+        assertTrue(rig.port.refCounts().isEmpty(), "解散后计数表应清零: " + rig.port.refCounts());
+        assertEquals(0, rig.port.refEntryCount(), "解散后条目应清零");
+        assertInvariants(rig.port, "discardSession 后");
+    }
+
+    /** ⑧b 双图会话:map1 释放(保留)→ map2 在用 → discardSession 两目录全部消失。 */
+    @Test
+    void discardSessionDestroysEveryCopyOfATwoMapSession(@TempDir Path templates,
+                                                         @TempDir Path copies) throws IOException {
+        layTemplate(templates, "dual_first", "level.dat");
+        layTemplate(templates, "dual_second", "level.dat");
+        Rig rig = Rig.direct(templates, copies);
+        MapDefinition firstMap = map("dual_first", ResetStrategy.REUSE_DIRTY);
+        MapDefinition secondMap = map("dual_second", ResetStrategy.REUSE_DIRTY);
+
+        // map1 在用 → 切到 map2(B5 释放 map1,会话活着目录保留);map2 仍持句柄
+        WorldHandle onFirst = await(rig.port.acquire(firstMap, SESSION));
+        awaitVoid(rig.port.release(onFirst));
+        WorldHandle onSecond = await(rig.port.acquire(secondMap, SESSION));
+        Path firstDir = copies.resolve(onFirst.instanceName());
+        Path secondDir = copies.resolve(onSecond.instanceName());
+        assertTrue(Files.isDirectory(firstDir), "切换离开后 map1 副本目录应保留");
+        assertTrue(Files.isDirectory(secondDir), "map2 在用,副本目录在");
+
+        // discardSession:两目录全部销毁(存活条目处置 + 曾发放名册兜删)
+        awaitVoid(rig.port.discardSession(SESSION));
+        assertFalse(Files.exists(firstDir), "曾发放已保留的 map1 目录应销毁(发放名册)");
+        assertFalse(Files.exists(secondDir), "在用的 map2 目录应销毁(存活条目处置)");
+        assertTrue(rig.port.refCounts().isEmpty(), "计数表应清零: " + rig.port.refCounts());
+        assertEquals(2, rig.loader.unloadCount.get(), "两个句柄都应卸载不存档");
+        assertInvariants(rig.port, "双图销毁后");
+    }
+
+    /** ⑧c TEMPLATE_RESTORE:discardSession 与既有 release 归零处置结论一致(删目录)。 */
+    @Test
+    void discardSessionConsistentWithReleaseZeroDisposalForTemplateRestore(
+            @TempDir Path templates, @TempDir Path copies) throws IOException {
+        layTemplate(templates, "wipe_both", "level.dat");
+        Rig rig = Rig.direct(templates, copies);
+        MapDefinition target = map("wipe_both", ResetStrategy.TEMPLATE_RESTORE);
+
+        // 既有 release 归零处置(同族参考 resetStrategiesDisposeCopiesAccordingly):删目录
+        WorldHandle released = await(rig.port.acquire(target, SESSION));
+        Path releasedDir = copies.resolve(released.instanceName());
+        awaitVoid(rig.port.release(released));
+        assertFalse(Files.exists(releasedDir), "TEMPLATE_RESTORE 归零释放应删目录");
+
+        // discardSession 对存活条目的处置:结论一致
+        WorldHandle live = await(rig.port.acquire(target, SESSION));
+        Path liveDir = copies.resolve(live.instanceName());
+        assertTrue(Files.isDirectory(liveDir), "再次获取应重建目录");
+        awaitVoid(rig.port.discardSession(SESSION));
+        assertFalse(Files.exists(liveDir), "TEMPLATE_RESTORE 经 discardSession 也删目录");
+        assertTrue(rig.port.refCounts().isEmpty(), "计数表应清零: " + rig.port.refCounts());
+        assertEquals(2, rig.loader.unloadCount.get(), "两次处置都卸载不存档");
+        assertInvariants(rig.port, "TEMPLATE_RESTORE 双处置后");
+    }
+
+    /**
+     * ⑧d 迟到 in-flight(复制中途解散,真会话服务 × 真端口端到端):
+     * 解散先作废挂起计划并发起 discardSession(短码记入已死集);其后复制完成、
+     * 世界照常加载发放——迟到的 acquire whenComplete 经 onWorldReady 的 aborted
+     * 守卫(§14.19:获取成功而计划已死 → 即还引用)释放句柄,归零处置发现
+     * 短码已死 → 无论策略删其副本目录。
+     */
+    @Test
+    void dissolveDuringCopyReleasesLateHandleViaOnWorldReadyAndDeletesCopy(
+            @TempDir Path templates, @TempDir Path copies) throws Exception {
+        GatedThreadedIo gatedIo = new GatedThreadedIo();
+        Rig rig = new Rig(templates, copies, gatedIo, 30_000L);
+
+        // 最小会话装配:真会话服务 + 真世界端口(假载器、门闩 IO;回程口直跑)
+        MapRegistry maps = new MapRegistry(templates);
+        MapDefinition mapDef = MapTestKit.registered(maps, templates,
+                map("late_e2e", ResetStrategy.REUSE_DIRTY));
+        MatchModeRegistry modes = new MatchModeRegistry(id -> OfflineAssembly.cfg());
+        modes.register(SwitchHarness.fixedProvider(SwitchHarness.mode("late_m", 0, 100)));
+        SessionServiceImpl service = new SessionServiceImpl.Builder()
+                .modes(modes)
+                .capabilities(new CapabilityRegistry())
+                .worlds(rig.port)
+                .maps(maps)
+                .configSource(id -> OfflineAssembly.cfg())
+                .policy(SessionPolicy.defaults(SessionPolicy.Topology.ROTATION))
+                .fallbackModeId("")
+                .engineServices(new EngineServices(new OfflineAssembly.FakePlatform()))
+                .mainExecutor(Runnable::run)       // A6 完成回程直跑(离线纪律)
+                .build();
+
+        // 建会话:首切发起 → acquire 在途(复制未完成,门闩关住)
+        Session session = service.create(
+                new SessionSpec(new SessionId("late-e2e"), "late_m", List.of(), List.of()));
+        Path dir = copies.resolve(mapDef.id() + "-" + session.id().shortCode());
+
+        // 复制中途解散:计划作废 + 短码入已死集(此刻无存活条目、无已发放名册)
+        service.dissolve(session.id(), DissolveReason.SHUTDOWN);
+        assertTrue(service.all().isEmpty(), "会话已摘除");
+        assertTrue(rig.port.refCounts().isEmpty(), "解散时获取尚未入表");
+        assertEquals(0, rig.loader.unloadCount.get(), "解散时尚无句柄可卸载");
+
+        // 放行:复制 → 加载 → 发放 → onWorldReady 守卫迟到释放 → 已死短码 → 删目录。
+        // 两阶段等待:先等复制真把目录建出来(否则「不存在」在复制前也成立,轮询空转),
+        // 再等守卫链把目录删掉
+        gatedIo.open();
+        awaitUntil(() -> Files.exists(dir));
+        awaitUntil(() -> !Files.exists(dir));
+        assertFalse(Files.exists(dir), "已死会话的迟到副本目录应删除(无论策略)");
+        assertEquals(1, rig.loader.unloadCount.get(), "迟到句柄应经 onWorldReady 释放并卸载");
+        assertTrue(rig.port.refCounts().isEmpty(), "归零条目必移除: " + rig.port.refCounts());
+        assertEquals(0, rig.port.inflightCount(), "in-flight 必清");
+        assertInvariants(rig.port, "迟到 in-flight 收场后");
+    }
+
+    /** 条件轮询(守卫链在发放线程异步收场:轮询至断言前提成立或超时)。 */
+    private static void awaitUntil(java.util.function.BooleanSupplier condition) {
+        long deadline = System.currentTimeMillis() + 5_000;
+        try {
+            while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** ⑧e 幂等:重复销毁无异常、零重复处置;从未获取过的会话销毁亦无害。 */
+    @Test
+    void discardSessionIsIdempotentAndHarmlessForUnknownSessions(
+            @TempDir Path templates, @TempDir Path copies) throws IOException {
+        layTemplate(templates, "idem_i", "level.dat");
+        Rig rig = Rig.direct(templates, copies);
+        MapDefinition target = map("idem_i", ResetStrategy.REUSE_DIRTY);
+
+        WorldHandle handle = await(rig.port.acquire(target, SESSION));
+        Path dir = copies.resolve(handle.instanceName());
+
+        // 首次销毁 + 重复调用:无异常、无重复处置(卸载一次、删任务不重复)
+        awaitVoid(rig.port.discardSession(SESSION));
+        int ioAfterFirstDiscard = rig.ioTasks.get();
+        int unloadsAfterFirstDiscard = rig.loader.unloadCount.get();
+        assertDoesNotThrow(() -> awaitVoid(rig.port.discardSession(SESSION)));
+        assertDoesNotThrow(() -> awaitVoid(rig.port.discardSession(SESSION)));
+        assertFalse(Files.exists(dir), "目录已销毁");
+        assertEquals(unloadsAfterFirstDiscard, rig.loader.unloadCount.get(),
+                "重复销毁不得再次卸载");
+        assertEquals(ioAfterFirstDiscard, rig.ioTasks.get(), "重复销毁不得重复派删");
+        assertTrue(rig.port.refCounts().isEmpty(), "计数表应清零: " + rig.port.refCounts());
+
+        // 从未获取过的会话:幂等无害(空处置、立即完成)
+        SessionId stranger = new SessionId("stranger-9");
+        assertDoesNotThrow(() -> awaitVoid(rig.port.discardSession(stranger)));
+        assertInvariants(rig.port, "幂等销毁后");
     }
 }

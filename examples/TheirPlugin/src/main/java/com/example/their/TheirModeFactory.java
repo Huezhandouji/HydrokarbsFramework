@@ -29,14 +29,17 @@ import com.hydrokarbs.engine.session.MatchModeConfig;
  */
 public final class TheirModeFactory implements MatchModeProvider {
 
+    /** 本样例模式 id(onDisable 显式 unregisterMode 与 onEnable registerMode 同源)。 */
+    public static final String MODE_ID = "their_mode";
+
     @Override
     public String id() {
-        return "their_mode";
+        return MODE_ID;
     }
 
     @Override
     public int requiredApiVersion() {
-        return 3;                       // ★v1.1-D7 声明:本工厂按 v3 面(地图注册)声明要求
+        return 5;                       // ★v1.1-D7 声明:本工厂按 v5 面(显式注册收敛)声明要求
     }
 
     @Override

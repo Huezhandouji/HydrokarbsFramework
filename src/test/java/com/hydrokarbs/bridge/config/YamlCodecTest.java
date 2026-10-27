@@ -1,7 +1,6 @@
 package com.hydrokarbs.bridge.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,7 +11,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -22,14 +20,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import com.hydrokarbs.engine.port.ResetStrategy;
-import com.hydrokarbs.map.NamedRegion;
-
 /**
- * YAML 编解码器(15-适配 §15.2;施工计划 2.2「测试与验收」):
- * 合法地图样例解析字段全对(含圆柱/球形区域、交互点、还原策略);
- * 缺 id → {@link ConfigException} 带文件名;值类型非法 → 取默认不抛(铁律 2);
- * 空文件 → 空配置可用(铁律 1)。离线:零 Bukkit import。
+ * YAML 编解码器(15-适配 §15.2;施工计划 2.2「测试与验收」):readMode 单口——
+ * 格式错误 → {@link ConfigException} 带文件名与解析器行号;空文件 → 空配置可用
+ * (铁律 1);值类型非法 → 取默认不抛(铁律 2)。离线:零 Bukkit import。
+ * (地图文件读口随文件式装载通道删除收敛——地图样例全字段解析测试一并移除。)
  */
 class YamlCodecTest {
 
@@ -59,50 +54,6 @@ class YamlCodecTest {
         });
     }
 
-    /** 合法地图样例(§15.2 地图文件形状:三形区域、交互点、边界、元数据、还原策略)。 */
-    private static final String CROSSFIRE = """
-            id: crossfire
-            display-name: 交叉火力
-            world: crossfire_tpl
-            tags: [pvp, medium]
-            bounds:
-              min: [0, 60, 0]
-              max: [200, 120, 200]
-            spawns:
-              lobby:
-                - { x: 10.5, y: 70, z: 12.5, yaw: 90 }
-                - { x: 12, y: 70, z: 12 }
-              attacker:
-                - { x: 100, y: 70, z: 10 }
-            regions:
-              mid-bunker:
-                type: cuboid
-                min: [50, 60, 50]
-                max: [80, 90, 80]
-                tags: [core]
-              spawn-ring:
-                type: cylinder
-                center: [100, 70, 100]
-                radius: 24.5
-                height: 8
-                tags: [guard]
-              ritual:
-                type: sphere
-                center: [100, 80, 100]
-                radius: 12
-                tags: [core]
-            interact-points:
-              altar:
-                pos: [100, 71, 100]
-                radius: 2.5
-                tag: shrine
-                anchor: world
-            metadata:
-              min-players: 4
-              authors: [Alice, Bob]
-            reset-strategy: TEMPLATE_RESTORE
-            """;
-
     private Path write(String fileName, String content) throws IOException {
         Path file = tempDir.resolve(fileName);
         Files.writeString(file, content, StandardCharsets.UTF_8);
@@ -110,68 +61,12 @@ class YamlCodecTest {
     }
 
     @Test
-    void crossfireSampleParsesEveryField() throws IOException {
-        var map = codec.readMap(write("crossfire.yml", CROSSFIRE));
-
-        assertEquals("crossfire", map.id());
-        assertEquals("交叉火力", map.displayName());
-        assertEquals("crossfire_tpl", map.world());
-        assertEquals(Set.of("pvp", "medium"), map.tags());
-        assertEquals(ResetStrategy.TEMPLATE_RESTORE, map.resetStrategy());
-
-        assertNotNull(map.bounds());
-        assertEquals(0.0, map.bounds().min()[0]);
-        assertEquals(120.0, map.bounds().max()[1]);
-
-        assertEquals(2, map.spawns("lobby").size());
-        assertEquals(90f, map.spawns("lobby").get(0).yaw());
-        assertEquals(1, map.spawns("attacker").size());
-        assertEquals(100.0, map.spawns("attacker").get(0).x());
-
-        assertEquals(3, map.regions().size());
-        var cuboid = map.regions().byId("mid-bunker").orElseThrow();
-        assertEquals(NamedRegion.RegionType.CUBOID, cuboid.type());
-        assertTrue(cuboid.contains(new double[] { 65, 75, 65 }));
-        assertTrue(cuboid.tags().contains("core"));
-        var cylinder = map.regions().byId("spawn-ring").orElseThrow();
-        assertEquals(NamedRegion.RegionType.CYLINDER, cylinder.type());
-        assertTrue(cylinder.contains(new double[] { 110, 72, 100 }));
-        assertTrue(!cylinder.contains(new double[] { 110, 80, 100 }));   // 超出高度
-        var sphere = map.regions().byId("ritual").orElseThrow();
-        assertEquals(NamedRegion.RegionType.SPHERE, sphere.type());
-        assertTrue(sphere.contains(new double[] { 100, 85, 100 }));
-        assertTrue(!sphere.contains(new double[] { 100, 95, 100 }));
-        assertEquals(2, map.regions().byTag("core").size());
-
-        assertEquals(1, map.interactPoints().size());
-        var point = map.interactPoints().get(0);
-        assertEquals("altar", point.id());
-        assertEquals(2.5, point.radius());
-        assertEquals("shrine", point.tag());
-        assertEquals("world", point.anchor());
-
-        assertEquals(4, ((Number) map.metadata().get("min-players")).intValue());
-        assertEquals(List.of("Alice", "Bob"), map.metadata().get("authors"));
-    }
-
-    @Test
-    void missingIdFailsLoudlyWithFileName() throws IOException {
-        Path file = write("broken.yml", """
-                world: w
-                tags: [a]
-                """);
-        ConfigException e = assertThrows(ConfigException.class, () -> codec.readMap(file));
-        assertTrue(e.getMessage().contains("broken.yml"),
-                "异常消息必须带文件名: " + e.getMessage());
-    }
-
-    @Test
     void malformedYamlFailsWithFileNameAndLine() throws IOException {
         Path file = write("bad-syntax.yml", """
-                id: x
+                rounds:
                  oops: [unclosed
                 """);
-        ConfigException e = assertThrows(ConfigException.class, () -> codec.readMap(file));
+        ConfigException e = assertThrows(ConfigException.class, () -> codec.readMode(file));
         assertTrue(e.getMessage().contains("bad-syntax.yml"),
                 "异常消息必须带文件名: " + e.getMessage());
         assertTrue(e.getMessage().contains("line"),

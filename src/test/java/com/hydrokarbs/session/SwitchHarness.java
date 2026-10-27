@@ -2,12 +2,12 @@ package com.hydrokarbs.session;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -29,9 +29,9 @@ import com.hydrokarbs.engine.session.SessionService;
 import com.hydrokarbs.engine.session.SessionState;
 import com.hydrokarbs.engine.session.SessionServiceImpl;
 import com.hydrokarbs.engine.session.SessionSpec;
-import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
 import com.hydrokarbs.testkit.FakeWorldPort;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
 
 /**
@@ -45,7 +45,7 @@ final class SwitchHarness {
     static final Set<String> TAG = Set.of("common");
 
     final MatchModeRegistry registry = new MatchModeRegistry(id -> OfflineAssembly.cfg());
-    final MapRegistry maps = new MapRegistry();
+    final MapRegistry maps;
     final CapabilityRegistry capabilities = new CapabilityRegistry();
     final FakeWorldPort worlds;
     final List<Collection<UUID>> relocations = new ArrayList<>();       // 解散传送记录
@@ -85,9 +85,11 @@ final class SwitchHarness {
         for (MatchMode mode : modes) {
             registry.register(fixedProvider(mode));
         }
-        maps.replace(List.of(
-                new MapDefinition("m1", "w1", TAG, Map.of()),
-                new MapDefinition("m2", "w2", TAG, Map.of())));
+        // 自理临时模板根 + 注册式地图 m1/m2(★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
+        Path templatesRoot = MapTestKit.newTemplatesRoot();
+        maps = new MapRegistry(templatesRoot);
+        MapTestKit.registered(maps, templatesRoot, "m1", TAG);
+        MapTestKit.registered(maps, templatesRoot, "m2", TAG);
         Logger logger = Logger.getLogger("switch-harness");
         logger.setUseParentHandlers(false);
         logger.addHandler(new java.util.logging.Handler() {

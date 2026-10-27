@@ -10,6 +10,8 @@ import java.util.function.Consumer;
 import com.hydrokarbs.api.view.MapInfo;
 import com.hydrokarbs.api.view.MatchModeInfo;
 import com.hydrokarbs.api.view.SessionInfo;
+import com.hydrokarbs.engine.component.SessionComponent;
+import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.JoinResult;
 import com.hydrokarbs.engine.session.LeaveReason;
@@ -40,6 +42,27 @@ import com.hydrokarbs.map.MapDefinition;
  * 已随 L5 data/model 出框架。方法集冻结「只增不改」,本注不改任何既有签名;
  * 缺席语义与类型归宿待宿主线持久化落定后回填。
  *
+ * <p><b>★v1.4 收敛(2026-10-27;API_VERSION = 4,冻结面计数 16 → 15 方法 =
+ * 查询 3 + 控制 1 + 成员 2 + 订阅 1 + 能力 2 + 建会话 1 + 地图 2 + 目录 3)</b>:
+ * 两参 {@code createSession(String, String)} 重载经用户裁决删除(破坏性收敛,
+ * 调用方迁移 {@link SessionRecipe} 形态),公共面建会话仅剩
+ * {@link #createSession(SessionRecipe)} 唯一形态;地图注册通道(★v1.2)维持不动。
+ * 「只增不改」纪律由 15 方法清单续行守卫(★19/★44,冻结测试与版本常量随本裁决合法更新)。
+ *
+ * <p><b>★v1.5 显式注册收敛(2026-10-27;API_VERSION = 5,冻结面计数 15 → 19 方法 =
+ * 查询 3 + 控制 1 + 成员 2 + 订阅 1 + 能力 2 + 建会话 1 + 地图 2 +
+ * <b>模式显式注册 2 + 会话组件显式注册 2</b> + 目录 3;24 号修正案裁决)</b>:
+ * 模式与会话组件改经本面显式注册——跨插件 ServicesManager 提供方通道
+ * ({@code register(MatchModeProvider.class, …)} + {@code ServiceRegisterEvent}/
+ * {@code ServiceUnregisterEvent} 动态收录/摘除)退场,注册期「响亮/不上抛」双口径
+ * 合一为响亮(显式调用方可捕获,事件回调抛异常中断派发的顾虑随通道消失);
+ * {@code SessionComponentProvider} SPI 接口删除(破坏性变更,消费方迁移
+ * {@link #registerSessionComponents});{@code MatchModeProvider} 保留为
+ * {@link #registerMode} 的载荷类型(本 jar ServiceLoader 半边出厂模式不动)。
+ * 提供方插件 disable 的框架侧兜底(14.38)对四族注册物(能力/模式/地图/贡献)
+ * 继续有效,消费方 onDisable 显式反注册仍是纪律。「只增不改」纪律由 19 方法清单
+ * 续行守卫(★19/★44,冻结测试与版本常量随本裁决合法更新)。
+ *
  * <p><b>A9 三限制(§0.2-A9/§7.2)</b>:①聚合根 {@code build()} 后不可变;
  * ②第三方不能给已注册模式追加组件或改组件表;③要「变体」就注册一个新 id——
  * 杜绝运行期装饰带来的加载顺序地狱。
@@ -49,9 +72,10 @@ import com.hydrokarbs.map.MapDefinition;
  * <table border="1">
  *   <caption>线程契约</caption>
  *   <tr><th>方法</th><th>线程</th><th>依据</th></tr>
- *   <tr><td>sessionOf/session/sessions/modes/maps/mode/createSession(两参与
- *       recipe)/joinSession/leaveSession/registerCapability/capabilities/
- *       registerMap/unregisterMap</td>
+ *   <tr><td>sessionOf/session/sessions/modes/maps/mode/createSession(recipe)/
+ *       joinSession/leaveSession/registerCapability/capabilities/
+ *       registerMap/unregisterMap/registerMode/unregisterMode/
+ *       registerSessionComponents/unregisterSessionComponents</td>
  *       <td>主线程调用(同步返回快照/结果)</td>
  *       <td>会话/注册表结构非线程安全(§10.5;Bukkit 事件主线程派发)</td></tr>
  *   <tr><td>switchMode</td>
@@ -66,11 +90,17 @@ public interface MiniGameApi {
 
     /**
      * API 面版本常量(★v1.1-D7 版本协商;只增不减):v1.0 = 1;v1.1 = 2;
-     * v1.2 = 3(地图注册通道)。消费方 {@code onEnable} <b>首行</b>检查
+     * v1.2 = 3(地图注册通道);v1.3 维持 3(战绩面悬置注,不改任何签名);
+     * v1.4 = 4(两参 {@code createSession} 重载删除——建会话公共面仅剩
+     * {@link #createSession(SessionRecipe)} 形态;地图注册通道维持);
+     * v1.5 = 5(显式注册收敛:模式/会话组件经 {@link #registerMode}/
+     * {@link #registerSessionComponents} 注册,ServicesManager 提供方通道与
+     * {@code SessionComponentProvider} SPI 删除)。
+     * 消费方 {@code onEnable} <b>首行</b>检查
      * {@code api == null || api.API_VERSION < REQUIRED} → SEVERE +
      * {@code setEnabled(false)}(拒载不崩服,14.36);框架 onEnable 日志输出版本。
      */
-    int API_VERSION = 3;
+    int API_VERSION = 5;
 
     // ── 查询(不可变快照;现取不缓存,14.31 同款纪律) ────────────────────────
 
@@ -102,18 +132,6 @@ public interface MiniGameApi {
                                                Handoff payload);
 
     /**
-     * 创建会话(arena 拓扑下第三方可开私设竞技场,§7.1/§3.6)。返回新会话快照
-     * (首切换尚在途,{@code modeId}/{@code mapId} 为空串)。
-     *
-     * <p>参数口径:{@code initialModeId} 未注册 → <b>响亮抛</b>(模式注册表
-     * {@code require} 的既有口径,§12.1);{@code initialMapId} 非空白 = 会话地图池
-     * 单元素(私设竞技场钉在该图,首切换经池过滤命中,§3.2-A3),空白 = 空池自动挑图。
-     * 会话 id 由框架生成(调用方不经 {@code sessions()} 查询即得)。
-     * 主线程调用。
-     */
-    SessionInfo createSession(String initialModeId, String initialMapId);
-
-    /**
      * 创建会话(★v1.1-D14 通道二:会话配方,单次贡献会话组件,§7.5)。
      * 合并序 = 已收录 provider 贡献(注册序,D14 通道一)→ {@code recipe.extraComponents}
      * (装配点唯一不变;模式仍无权贡献,无运行期增删)。
@@ -121,7 +139,7 @@ public interface MiniGameApi {
      * <p>失败语义(装配期响亮失败,代价低,§7.3):{@code initialModeId} 未注册 /
      * 组件 id 查重冲突 / 缺必需依赖 → 响亮抛,会话不创建、不留半装配态
      * (与既有会话创建语义一致);随 {@code dissolve} 全灭(★52)。
-     * 既有两参重载保留,等价于空 recipe。主线程调用。
+     * 本方法是公共 API 建会话的唯一形态(★v1.4:两参重载已删除)。主线程调用。
      */
     SessionInfo createSession(SessionRecipe recipe);
 
@@ -175,30 +193,85 @@ public interface MiniGameApi {
 
     /**
      * 注册地图(声明 = 纯静态 {@link MapDefinition},直接交成品——与模式必须交
-     * 工厂相对,20-D1)。注册期校验(响亮抛,20-D3):id 查重(与文件式同一
-     * 命名空间,重复点名先到者)、tags、世界模板目录存在性
-     * ({@code maps/templates/<mapId>/},缺失响亮抛带路径;14.39:先解包后注册)。
-     * 成功返回 {@link MapInfo} 快照并进 {@link #maps()} 目录,可被 {@code switchMode}
-     * 选中。主线程调用。
+     * 工厂相对,20-D1)。注册期校验(响亮抛,20-D3):id 查重(重复点名先到者)、
+     * tags、世界模板目录存在性({@code maps/templates/<mapId>/},缺失响亮抛带路径;
+     * 14.39:先解包后注册)。成功返回 {@link MapInfo} 快照并进 {@link #maps()}
+     * 目录,可被 {@code switchMode} 选中。主线程调用。
      */
     MapInfo registerMap(org.bukkit.plugin.Plugin provider, MapDefinition map);
 
     /**
-     * 摘除注册式地图;文件式地图(id 来自 {@code maps/*.yml})→ 响亮拒绝(20-D4)。
-     * 该图为任一存活会话当前实例所用 → 摘除被拒(detail 点名会话——图随会话打完
-     * 自然退出,或 dissolve 后再摘;这是特性不是障碍,20-D4)。幂等:已不在目录 =
-     * no-op。提供方插件 disable → 框架兜底摘除(正用则保留并 WARN)。主线程调用。
+     * 摘除地图(20-D4)。该图为任一存活会话当前实例所用 → 摘除被拒(detail 点名
+     * 会话——图随会话打完自然退出,或 dissolve 后再摘;这是特性不是障碍,20-D4)。
+     * 幂等:已不在目录 = no-op。提供方插件 disable → 框架兜底摘除(正用则保留并
+     * WARN)。主线程调用。
      */
     void unregisterMap(org.bukkit.plugin.Plugin provider, String mapId);
 
-    // ── 目录(顺序 = 注册序/装载序,不排序不过滤——14.21「大厅特判」反弹规避) ──
-    //    第三方模式经 MatchModeProvider 注册(7.2,ServicesManager 收录)入目录后
-    //    服主经本组方法可见,与其他模式同列、无特判(§7.2/§13.4;框架不设出厂模式,21-D3)。
+    // ── 模式显式注册(★v1.5;24 号修正案:ServicesManager 提供方通道退场) ──
+
+    /**
+     * 注册模式工厂(★v1.5 显式注册通道;07 §7.2 表「第三方注册模式」行的本面落点)。
+     * <b>注册工厂,不是注册成品</b>(§13.4):{@link MatchModeProvider} 交声明
+     * 不交实例——聚合根由框架以自己的配置源 {@code build(cfg)} 产出(modes/&lt;id&gt;.yml
+     * 的生命周期归框架,§10.2;工厂不持成品状态),注册闸
+     * (build → verifyDependencies → id 查重)<b>全响亮</b>:坏声明/重复 id 原样抛给
+     * 调用方(onEnable 注册失败 = 拒载信号;原运行期事件回调的「不上抛」口径随
+     * ServicesManager 通道退场)。成功返回模式快照并进 {@link #modes()} 目录,
+     * 可被 {@code switchMode} 选中。
+     *
+     * <p>A9 三限制(§0.2-A9/§7.2):①聚合根 build 后不可变;②第三方不能给已注册
+     * 模式追加组件或改组件表;③要「变体」就注册一个新 id——杜绝运行期装饰带来的
+     * 加载顺序地狱。工厂与其组件的第三方依赖白名单见 {@link MatchModeProvider}
+     * javadoc(§13.4 约束段)。
+     *
+     * <p>{@code provider} 用于归属簿记:disable 兜底按提供方摘除(14.38);
+     * {@link #unregisterMode} 只能摘自己注册的 id。主线程调用。
+     */
+    MatchModeInfo registerMode(org.bukkit.plugin.Plugin provider, MatchModeProvider factory);
+
+    /**
+     * 摘除本提供方注册的一个模式(★v1.5)。归属簿记在框架侧:只准摘自己注册的
+     * id——id 属于其他提供方(含本 jar 出厂模式)→ {@code IllegalStateException}
+     * 响亮拒;id 不存在 → 幂等 no-op。摘除后执行<b>摘除回退编排</b>(§13.4/§3.2
+     * 二级):逐存活会话当前模式 ∈ 被摘集——{@code session.fallback-mode} 已配置且
+     * 已注册 → force 切换回退(豁免 min-dwell,§3.5);否则 {@code FALLBACK_DISSOLVE}
+     * 解散;回退被拒({@code SWITCH_IN_PROGRESS})WARN 放弃不自旋(§14.17)。
+     * 主线程调用。
+     */
+    void unregisterMode(org.bukkit.plugin.Plugin provider, String modeId);
+
+    // ── 会话组件显式注册(★v1.5;D14 通道一的显式面) ─────────────────────
+
+    /**
+     * 注册会话组件贡献(★v1.5 显式注册通道;D14 通道一,07 §7.3「受限开放」):
+     * 提供宿主级会话策略(自定义重连/宽限/准入记账等),<b>模式仍无权贡献</b>
+     * (v4-D4 不变)、无运行期增删(贡献只发生在会话创建时,装配点唯一不变)。
+     * 干跑合并校验(组件 id 查重/必需依赖可满足)失败<b>响亮上抛</b>给调用方
+     * (显式注册可捕获;注册闸只有一份——原事件通道「SEVERE 拒收录、会话照常」
+     * 口径随通道退场);通过后所有后续 {@link #createSession} 合并其贡献(注册序)。
+     * 同一提供方重复注册 = 幂等重收录(旧条目先摘再干跑,不留半收录态)。
+     * 主线程调用。
+     */
+    void registerSessionComponents(org.bukkit.plugin.Plugin provider,
+                                   List<SessionComponent.Specification<?>> specs);
+
+    /**
+     * 摘除本提供方的全部会话组件贡献(★v1.5;幂等——未注册 = no-op):后续会话
+     * 不再合并;已装配会话不受影响(无运行期拆卸,随 dissolve 自然消亡,D14)。
+     * 主线程调用。
+     */
+    void unregisterSessionComponents(org.bukkit.plugin.Plugin provider);
+
+    // ── 目录(顺序 = 注册序,不排序不过滤——14.21「大厅特判」反弹规避) ─────
+    //    第三方模式经 registerMode 显式注册(★v1.5;原 ServicesManager 收录口径退场)
+    //    入目录后服主经本组方法可见,与其他模式同列、无特判(§7.2/§13.4;框架不设
+    //    出厂模式,21-D3)。
 
     /** 全部已注册模式快照(注册序,含第三方模式;空表合法(0 个模式属正常))。主线程调用。 */
     List<MatchModeInfo> modes();
 
-    /** 全部已装载地图快照(文件装载序 + 注册序;空表合法)。主线程调用。 */
+    /** 全部已注册地图快照(注册序;空表合法)。主线程调用。 */
     List<MapInfo> maps();
 
     /** 按模式 id 取快照;缺失 → empty(不抛)。主线程调用。 */

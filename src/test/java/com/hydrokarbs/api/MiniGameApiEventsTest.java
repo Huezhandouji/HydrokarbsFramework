@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -11,11 +12,13 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.service.GlobalBoard;
 import com.hydrokarbs.testkit.FakeWorldPort;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineApi;
 
 /**
@@ -32,13 +35,22 @@ class MiniGameApiEventsTest {
 
     private static final String MODE_ID = "probe_mode";
 
+    @TempDir
+    Path tempDir;
+
     private OfflineApi harness;
 
     @BeforeEach
     void setUp() {
-        harness = new OfflineApi(null, FakeWorldPort.immediate(),
+        harness = new OfflineApi(templatesRoot(), FakeWorldPort.immediate(),
                 OfflineApi.mode(MODE_ID, OfflineApi.TAG));
-        harness.maps.replace(List.of(OfflineApi.map("file_map", OfflineApi.TAG)));
+        // 注册式地图(标签 common):让首切实例就位(★文件式装载通道已删,造数走 MapTestKit)
+        MapTestKit.registered(harness.maps, templatesRoot(), "file_map", OfflineApi.TAG);
+    }
+
+    /** 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定)。 */
+    private Path templatesRoot() {
+        return tempDir.resolve("maps").resolve("templates");
     }
 
     // ── ★43 订阅三命题 ──────────────────────────────────────────────

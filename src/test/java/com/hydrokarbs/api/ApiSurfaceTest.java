@@ -79,8 +79,10 @@ import com.hydrokarbs.api.view.SessionInfo;
  * 细化落盘处;与 {@link #WHITELIST} 常量一一对应,新增条目须同步注释出处)</b>:
  * <ul>
  *   <li>{@code api/**}——MiniGameApi、EventSubscription、SessionRecipe、
- *       SessionComponentProvider、SessionEventView 八 record、view 三快照
- *       (07 §7.1/§7.2;SessionInfo 定名裁决见其 javadoc);</li>
+ *       SessionEventView 八 record、view 三快照
+ *       (07 §7.1/§7.2;SessionInfo 定名裁决见其 javadoc;★v1.5:
+ *       原 {@code SessionComponentProvider} SPI 随 ServicesManager 提供方通道
+ *       退场删除,消费方迁移 {@code MiniGameApi#registerSessionComponents});</li>
  *   <li>{@code engine.mode/**}——MatchMode(嵌套 Builder/ComponentEntry)、
  *       MatchModeMeta(嵌套 DefaultTransition)、MatchModeProvider(19-D6 行;
  *       Builder 即声明语言,7.2 落地);</li>
@@ -135,9 +137,9 @@ class ApiSurfaceTest {
 
     /** 白名单逐包清单(出处见类注;顺序 = 注释块序,无语义)。 */
     private static final List<Class<?>> WHITELIST = List.of(
-            // ── api/**(07 §7.1 全部公开类型) ──
+            // ── api/**(07 §7.1 全部公开类型;★v1.5 起 SessionComponentProvider 出册) ──
             MiniGameApi.class, EventSubscription.class, SessionRecipe.class,
-            SessionComponentProvider.class, SessionEventView.class,
+            SessionEventView.class,
             SessionEventView.Created.class, SessionEventView.MemberJoined.class,
             SessionEventView.MemberLeft.class, SessionEventView.MemberReconnected.class,
             SessionEventView.ModeSwitchStarted.class, SessionEventView.ModeSwitchCompleted.class,
@@ -201,7 +203,7 @@ class ApiSurfaceTest {
         }
     }
 
-    /** 递归展开泛型(ParemterizedType/数组),逐叶类型判定允许集。 */
+    /** 递归展开泛型(ParemterizedType/数组/通配符/类型变量),逐叶类型判定允许集。 */
     private static void assertReferencedTypesAllowed(String where, Type type) {
         if (type instanceof Class<?> raw) {
             assertTrue(isAllowed(raw), where + " 引用非白名单类型: " + raw.getName()
@@ -217,6 +219,24 @@ class ApiSurfaceTest {
         }
         if (type instanceof java.lang.reflect.GenericArrayType array) {
             assertReferencedTypesAllowed(where, array.getGenericComponentType());
+            return;
+        }
+        // ★v1.5 技术修正(命题不变、非放宽):通配符/类型变量无「类型名」可判,
+        // 递归其上界——上界引用类型仍须过白名单(registerSessionComponents 的
+        // List<SessionComponent.Specification<?>> 是首个带通配符实参的签名)。
+        if (type instanceof java.lang.reflect.WildcardType wildcard) {
+            for (Type bound : wildcard.getUpperBounds()) {
+                assertReferencedTypesAllowed(where, bound);
+            }
+            for (Type bound : wildcard.getLowerBounds()) {
+                assertReferencedTypesAllowed(where, bound);
+            }
+            return;
+        }
+        if (type instanceof java.lang.reflect.TypeVariable<?> variable) {
+            for (Type bound : variable.getBounds()) {
+                assertReferencedTypesAllowed(where, bound);
+            }
             return;
         }
         throw new AssertionError(where + " 出现未支持的反射形态: " + type);
@@ -240,13 +260,13 @@ class ApiSurfaceTest {
 
     // ── 断言 ②:白名单公开签名快照只增不改(★44 后半;首建基线 2026-10-25) ──
 
-    /** 首建快照文本(7.5,2026-10-25;由 {@code snapshotLines()} 同算法生成后粘贴;须先于 BASELINE 声明)。 */
+    /** 首建快照文本(7.5,2026-10-25;★v1.5 更新:增 MiniGameApi 四行、删 SessionComponentProvider 两行;
+     *  由 {@code snapshotLines()} 同算法生成后粘贴;须先于 BASELINE 声明)。 */
     private static final String BASELINE_TEXT = """
 com.hydrokarbs.api.EventSubscription#close():void
 com.hydrokarbs.api.MiniGameApi#API_VERSION:int
 com.hydrokarbs.api.MiniGameApi#capabilities():java.util.Set
 com.hydrokarbs.api.MiniGameApi#createSession(com.hydrokarbs.api.SessionRecipe):com.hydrokarbs.api.view.SessionInfo
-com.hydrokarbs.api.MiniGameApi#createSession(java.lang.String,java.lang.String):com.hydrokarbs.api.view.SessionInfo
 com.hydrokarbs.api.MiniGameApi#joinSession(java.lang.String,java.util.UUID):com.hydrokarbs.engine.session.JoinResult
 com.hydrokarbs.api.MiniGameApi#leaveSession(java.util.UUID,com.hydrokarbs.engine.session.LeaveReason):void
 com.hydrokarbs.api.MiniGameApi#maps():java.util.List
@@ -254,14 +274,16 @@ com.hydrokarbs.api.MiniGameApi#mode(java.lang.String):java.util.Optional
 com.hydrokarbs.api.MiniGameApi#modes():java.util.List
 com.hydrokarbs.api.MiniGameApi#registerCapability(org.bukkit.plugin.Plugin,java.lang.String):void
 com.hydrokarbs.api.MiniGameApi#registerMap(org.bukkit.plugin.Plugin,com.hydrokarbs.map.MapDefinition):com.hydrokarbs.api.view.MapInfo
+com.hydrokarbs.api.MiniGameApi#registerMode(org.bukkit.plugin.Plugin,com.hydrokarbs.engine.mode.MatchModeProvider):com.hydrokarbs.api.view.MatchModeInfo
+com.hydrokarbs.api.MiniGameApi#registerSessionComponents(org.bukkit.plugin.Plugin,java.util.List):void
 com.hydrokarbs.api.MiniGameApi#session(java.lang.String):java.util.Optional
 com.hydrokarbs.api.MiniGameApi#sessionOf(java.util.UUID):java.util.Optional
 com.hydrokarbs.api.MiniGameApi#sessions():java.util.List
 com.hydrokarbs.api.MiniGameApi#subscribeSessionEvents(java.util.function.Consumer):com.hydrokarbs.api.EventSubscription
 com.hydrokarbs.api.MiniGameApi#switchMode(java.lang.String,com.hydrokarbs.engine.session.MatchModeSelection,com.hydrokarbs.engine.session.Handoff):java.util.concurrent.CompletableFuture
 com.hydrokarbs.api.MiniGameApi#unregisterMap(org.bukkit.plugin.Plugin,java.lang.String):void
-com.hydrokarbs.api.SessionComponentProvider#requiredApiVersion():int
-com.hydrokarbs.api.SessionComponentProvider#sessionComponents():java.util.List
+com.hydrokarbs.api.MiniGameApi#unregisterMode(org.bukkit.plugin.Plugin,java.lang.String):void
+com.hydrokarbs.api.MiniGameApi#unregisterSessionComponents(org.bukkit.plugin.Plugin):void
 com.hydrokarbs.api.SessionEventView#tick():long
 com.hydrokarbs.api.SessionEventView$ComponentQuarantined#cause():java.lang.String
 com.hydrokarbs.api.SessionEventView$ComponentQuarantined#componentId():java.lang.String
@@ -803,7 +825,6 @@ com.hydrokarbs.map.InteractPoint#toString():java.lang.String
 com.hydrokarbs.map.MapDefinition#bounds():com.hydrokarbs.map.MapDefinition$Bounds
 com.hydrokarbs.map.MapDefinition#displayName():java.lang.String
 com.hydrokarbs.map.MapDefinition#equals(java.lang.Object):boolean
-com.hydrokarbs.map.MapDefinition#from(java.util.Map,java.lang.String):com.hydrokarbs.map.MapDefinition
 com.hydrokarbs.map.MapDefinition#hashCode():int
 com.hydrokarbs.map.MapDefinition#id():java.lang.String
 com.hydrokarbs.map.MapDefinition#interactPoints():java.util.List

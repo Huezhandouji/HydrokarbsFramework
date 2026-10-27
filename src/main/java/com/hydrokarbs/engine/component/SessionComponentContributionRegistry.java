@@ -9,27 +9,28 @@ import com.hydrokarbs.engine.session.SessionId;
 
 /**
  * 会话组件贡献收录表(★v1.1-D14 通道一的进程级机制件;7.5 施工文档步骤 6;
- * 镜像 {@code MatchModeRegistry} 的 {@code providerIds} 收录/摘除先例)。
+ * ★v1.5 起唯一调用方 = {@code MiniGameApiImpl#registerSessionComponents} 显式面)。
  *
  * <p><b>职责只有两件</b>:①收录——干跑合并校验(合并既有贡献 + 新贡献,经
  * scratch {@link SessionComponentRegistry} 走与真实装配同一套 bind 查重 +
  * {@code verifyDependencies} 算法)通过才落地;②按提供方身份摘除(插件 disable
  * 兜底,后续会话不再合并;已装配会话不受影响——无运行期拆卸,D14)。
- * 会话编排不在这里(镜像摘除回退先例:职责分离,归 listener 层)。
+ * 会话编排不在这里(镜像摘除回退先例:职责分离,归 api 层)。
  *
- * <p><b>收录闸失败语义</b>:{@link #register} 校验失败响亮抛(调用方——
- * {@code ProviderServiceListener} ——catch 后 SEVERE 拒收录、会话照常);
+ * <p><b>收录闸失败语义</b>:{@link #register} 校验失败响亮上抛给调用方
+ * (★v1.5 显式注册可捕获——onEnable 注册失败 = 拒载信号;原事件路径「调用方
+ * catch 后 SEVERE 拒收录、会话照常」口径随 ServicesManager 通道退场);
  * <b>失败不留半收录态</b>:先按身份摘除既有条目再干跑,失败时新贡献与旧条目
- * 均不入表(与「坏 provider 拒收录」口径一致,重注册场景语义自洽)。
+ * 均不入表(与「坏贡献拒收录」口径一致,重注册场景语义自洽)。
  *
- * <p><b>键形态</b>:提供方键 = {@code Object} 身份(生产 =
- * {@code org.bukkit.plugin.Plugin},经 {@code RegisteredServiceProvider#getPlugin}
- * 取——插件 disable 兜底按插件摘除,14.38/D14;IdentityHashMap 同款「按实例身份」
- * 纪律,7.2 要点 4)。本类零 Bukkit 依赖(离线测试可传任意身份对象),
+ * <p><b>键形态</b>:提供方键 = {@code Object} 身份(★v1.5 生产 = 调用方插件实例
+ * {@code org.bukkit.plugin.Plugin}——显式注册的 provider 参数与插件 disable 兜底
+ * 按同一插件实例摘除,14.38/D14;IdentityHashMap 同款「按实例身份」纪律,
+ * 7.2 要点 4)。本类零 Bukkit 依赖(离线测试可传任意身份对象),
  * {@code map} 包纯模型纪律同源。
  *
- * <p>线程契约:收录/摘除/合并全部主线程(ServicesManager 事件与插件生命周期
- * 事件均在主线程派发,§7.2 要点 5);普通集合不加锁。
+ * <p>线程契约:收录/摘除/合并全部主线程(插件生命周期事件在主线程派发,
+ * api javadoc 主线程调用口径);普通集合不加锁。
  */
 public final class SessionComponentContributionRegistry {
 
@@ -43,12 +44,12 @@ public final class SessionComponentContributionRegistry {
     /**
      * 收录一个提供方的贡献(D14 通道一):先按身份摘除既有条目(重注册幂等)→
      * 全量干跑合并校验(scratch 注册表:组件 id 查重 + 必需依赖可满足)→
-     * 通过才落地。校验失败响亮抛(调用方 SEVERE 拒收录、会话照常)。
+     * 通过才落地。校验失败响亮上抛给调用方(★v1.5 显式注册可捕获)。
      *
      * <p><b>freeze 副作用注</b>:干跑经 {@code spec.freeze()} 产快照——描述符
      * 冻结与真实装配路径同款(每次 {@code create} 前框架本就逐 Spec freeze,
-     * 共享 SPEC 常量跨会话互不串改由 Snapshot 结构保证);对被拒 provider 的
-     * 描述符,冻结后仅「声明方法拒改」(声明发生在其构造期),无行为影响。
+     * 共享 SPEC 常量跨会话互不串改由 Snapshot 结构保证);对被拒贡献的描述符,
+     * 冻结后仅「声明方法拒改」(声明发生在其构造期),无行为影响。
      */
     public void register(Object providerKey, List<SessionComponent.Specification<?>> specs) {
         Objects.requireNonNull(providerKey, "providerKey");

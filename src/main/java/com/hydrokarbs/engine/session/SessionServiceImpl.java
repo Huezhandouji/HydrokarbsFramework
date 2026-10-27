@@ -627,7 +627,8 @@ public final class SessionServiceImpl implements SessionService {
     /**
      * 解散执行(幂等;★v4/§3.8 顺序是规格的一部分):作废挂起切换 → 置 {@code DISSOLVING}
      * →(若有实例)关闭实例 → <b>会话组件逆序 stop + 登记资源统一回收</b>(★新增)→
-     * 成员传送主城出生点(三级:失败保持原地)→ 释放世界句柄接缝 → 兜底清态 → 摘除 →
+     * 成员传送主城出生点(三级:失败保持原地)→ 销毁世界副本接缝(discardSession:
+     * 复用窗口随会话解散关闭)→ 兜底清态 → 摘除 →
      * 发解散事件。会话组件标签集随会话终结一并消灭(A2 并集不再含它,D6)。
      */
     private void dissolveNow(Session session, DissolveReason reason) {
@@ -658,13 +659,16 @@ public final class SessionServiceImpl implements SessionService {
                 log.log(Level.WARNING, "解散传送失败,成员保持原地: 会话 " + session.id().value(), t);
             }
         } finally {
-            // 释放世界句柄兜底(§3.7 释放时机行:dissolve 的 finally;§14.19)。
-            // 先摘再释放:dissolveNow 幂等守卫之外的双保险,release 自身亦幂等。
+            // 世界副本销毁兜底(§3.7 释放时机行:dissolve 的 finally;§14.19)。
+            // 先摘再释放的双保险纪律保留:heldWorld 先摘除,计数表条目与全部副本
+            // (含曾发放已保留的目录、迟到 in-flight 的已死短码判据)由
+            // discardSession 在端口内部消化——复用窗口随会话解散关闭。
+            // 无 heldWorld 也照发:解散时若有在途获取,须先记已死短码防其残留。
             WorldHandle heldWorld = session.worldHandle();
             if (heldWorld != null) {
                 session.replaceWorldHandle(null);
-                worlds.release(heldWorld);
             }
+            worlds.discardSession(session.id());
             try {
                 safeStateCleaner.accept(members);   // 兜底清理通用安全态(隐身/模式等)
             } catch (Throwable t) {

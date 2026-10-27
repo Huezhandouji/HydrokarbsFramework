@@ -3,7 +3,6 @@ package com.example.their;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,18 +20,15 @@ import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.hydrokarbs.api.EventSubscription;
 import com.hydrokarbs.api.MiniGameApi;
-import com.hydrokarbs.api.SessionComponentProvider;
 import com.hydrokarbs.api.SessionEventView;
 import com.hydrokarbs.api.SessionRecipe;
 import com.hydrokarbs.api.view.MapInfo;
 import com.hydrokarbs.api.view.SessionInfo;
 import com.hydrokarbs.engine.component.SessionComponent;
-import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.session.JoinResult;
 import com.hydrokarbs.engine.session.LeaveReason;
 import com.hydrokarbs.map.MapDefinition;
@@ -40,33 +36,42 @@ import com.hydrokarbs.map.SpawnPoint;
 
 /**
  * 第三方消费样例插件(7.5 施工文档步骤 10;13-扩展步骤 §13.4/§13.10/§13.11 的
- * 可运行落地版):真实消费 {@link MiniGameApi} v3 面——成员操作编排(D2)、
+ * 可运行落地版):真实消费 {@link MiniGameApi} v5 面——成员操作编排(D2)、
  * 会话事件订阅(D3)、能力标签(D4)、SessionRecipe 单次建会话(D14 通道二)、
- * 注册式地图(★v1.2;解包 → 构造声明 → registerMap,14.39),并演示
+ * 注册式地图(★v1.2;解包 → 构造声明 → registerMap,14.39)、模式与会话组件
+ * 显式注册(★v1.5;原 ServicesManager 提供方通道退场),并演示
  * 版本协商拒载(14.36)、句柄只在实例字段(14.38)与禁 shade 构建断言(14.35,
  * 见 build.gradle.kts 的 {@code verifyNoFrameworkClasses} 任务)。
  *
- * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表):首行查版本 → 注册
- * 模式工厂/会话组件提供方 → 解包模板 → 构造 MapDefinition → registerMap →
- * 订阅事件 → 注册命令。
+ * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表;★v1.5 显式注册口径):
+ * 首行查版本 → registerMode(工厂;响亮抛 = 拒载信号)→ registerSessionComponents
+ * (贡献)→ 解包模板 → 构造 MapDefinition → registerMap → 订阅事件 → 注册命令。
  *
  * <p><b>文本纪律(14.10)</b>:命令参数(会话 id/模式 id/标签)是玩家可控串,
  * 一律 {@code Component.text(...)} 固定样式拼接——<b>不过 MiniMessage</b>,零注入面。
  *
  * <p><b>卸载善后(14.38/§13.11 步骤 6)</b>:订阅句柄 onDisable 显式 close;
  * 注册式地图显式 unregisterMap(正用摘除被拒 = 保留并 WARN,20-D4);
- * 能力标签/贡献/模式的框架侧兜底由 PluginDisableEvent 承担(D8,消费方无需自建)。
+ * 模式/贡献显式 unregisterMode/unregisterSessionComponents(镜像 unregisterMap 纪律;
+ * 提供方插件的框架侧 PluginDisableEvent 兜底仍存在,消费方显式反注册是防御性纪律)。
  */
 public final class TheirPlugin extends JavaPlugin {
 
-    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服)。 */
-    static final int REQUIRED_API_VERSION = 3;
+    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服;★v1.5 起 = 5)。 */
+    static final int REQUIRED_API_VERSION = 5;
     /** 注册式地图 id(模板随本 jar 分发;14.39 顺序的演示载体)。 */
     static final String MAP_ID = "their_arena";
     /** 模板资源根(jar 内路径;解包目标 = 框架数据目录 maps/templates/<id>/)。 */
     private static final String TEMPLATE_RESOURCE_ROOT = "maps/templates/" + MAP_ID;
     /** 根命令(自有命令树;plugin.yml 不写 commands: 段——Brigadier 注册)。 */
     private static final String ROOT_COMMAND = "their";
+    /**
+     * D14 通道一:全局默认贡献(★v1.5 显式注册;所有新会话合并)。Spec 常量
+     * 共享跨会话互不串改由 Snapshot 结构保证(收录表 freeze 副作用注)。
+     * 包私有:守卫用例(TheirPluginGuardsTest)直读断言。
+     */
+    static final List<SessionComponent.Specification<?>> SESSION_COMPONENT_SPECS =
+            List.of(new TheirSessionComponent.Spec());
 
     private MiniGameApi api;
     /** 订阅句柄只在插件实例字段中持有(14.38;onDisable 显式 close)。 */
@@ -82,17 +87,15 @@ public final class TheirPlugin extends JavaPlugin {
             setEnabled(false);
             return;
         }
-        // 注册工厂/提供方,不是注册成品(§13.4 步骤 2;D14 通道一注册,07 §7.3)
-        getServer().getServicesManager().register(
-                MatchModeProvider.class, new TheirModeFactory(), this, ServicePriority.Normal);
-        getServer().getServicesManager().register(
-                SessionComponentProvider.class, new TheirComponentProvider(), this,
-                ServicePriority.Normal);
+        // ★v1.5 显式注册(注册工厂/声明,不是注册成品;§13.4 步骤 2;D14 通道一):
+        // 注册闸响亮抛(build/依赖校验/重复 id)——异常上抛 = onEnable 失败 = 拒载信号
+        api.registerMode(this, new TheirModeFactory());
+        api.registerSessionComponents(this, SESSION_COMPONENT_SPECS);
         registerTheirArenaMap();            // ★v1.2:解包 → 构造声明 → registerMap(14.39)
         subscribeSessionEvents();           // D3:句柄存实例字段
         registerCommands();                 // 自有 Brigadier 命令树
         getLogger().info("TheirPlugin enabled: API_VERSION=" + api.API_VERSION
-                + "(消费样例:成员/事件/能力/recipe/注册式地图)");
+                + "(消费样例:成员/事件/能力/recipe/注册式地图/显式注册)");
     }
 
     @Override
@@ -108,6 +111,8 @@ public final class TheirPlugin extends JavaPlugin {
                 getLogger().warning("卸载摘除注册式地图被拒(正用保留,20-D4): "
                         + refused.getMessage());
             }
+            api.unregisterSessionComponents(this);        // 镜像 unregisterMap 纪律(幂等;兜底仍存在)
+            api.unregisterMode(this, TheirModeFactory.MODE_ID);   // 幂等;兜底仍存在(回退编排同款)
         }
         api = null;
     }
@@ -259,21 +264,5 @@ public final class TheirPlugin extends JavaPlugin {
             player.sendMessage(Component.text("事件订阅已开启", NamedTextColor.GREEN));
         }
         return 1;
-    }
-
-    /** D14 通道一:全局默认贡献(所有新会话合并;干跑校验失败框架拒收录、会话照常)。 */
-    static final class TheirComponentProvider implements SessionComponentProvider {
-
-        @Override
-        public List<SessionComponent.Specification<?>> sessionComponents() {
-            List<SessionComponent.Specification<?>> specs = new ArrayList<>();
-            specs.add(new TheirSessionComponent.Spec());
-            return specs;
-        }
-
-        @Override
-        public int requiredApiVersion() {
-            return REQUIRED_API_VERSION;
-        }
     }
 }

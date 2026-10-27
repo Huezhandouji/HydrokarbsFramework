@@ -10,14 +10,12 @@ import java.util.Map;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.MarkedYAMLException;
 
-import com.hydrokarbs.map.MapDefinition;
-
 /**
  * YAML → 不可变模型的唯一编解码点(15-适配 §15.2 解析实现要点;施工计划 2.2)。
  *
- * <p>两个读口:{@link #readMap}(地图文件 → {@link MapDefinition})与
- * {@link #readMode}(模式/主配置文件 → 原始映射,交 {@link MatchModeConfigLoader}。
- * UTF-8;解析用 SnakeYAML(Paper 自带,经 paper-api 传递依赖)。
+ * <p>唯一读口:{@link #readMode}(模式/主配置文件 → 原始映射,交
+ * {@link MatchModeConfigLoader})。UTF-8;解析用 SnakeYAML(Paper 自带,
+ * 经 paper-api 传递依赖)。
  *
  * <p><b>异常统一</b>:任何失败抛 {@link ConfigException},消息带文件名与
  * 行号(取自底层解析器的定位信息;无定位信息的 IO 错误只带文件名)。
@@ -34,21 +32,6 @@ public final class YamlCodec {
     /** 每次解析新建解析器实例(SnakeYAML 实例非线程安全,小对象代价可忽略)。 */
     private Yaml newParser() {
         return new Yaml();
-    }
-
-    /**
-     * 读地图文件:解析 + {@link MapDefinition#from} 结构校验。
-     * 缺 {@code id}/{@code world}/{@code tags} 等结构缺失 → {@link ConfigException}
-     * 带文件名(局部失败,由装载编排层跳过该文件)。
-     */
-    public MapDefinition readMap(Path file) {
-        String fileName = String.valueOf(file.getFileName());
-        Map<String, Object> root = readRoot(file, fileName, "地图");
-        try {
-            return MapDefinition.from(root, fileName);
-        } catch (RuntimeException e) {
-            throw new ConfigException(e.getMessage(), e);
-        }
     }
 
     /**

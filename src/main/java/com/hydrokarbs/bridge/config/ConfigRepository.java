@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +15,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import com.hydrokarbs.engine.port.ConfigView;
 import com.hydrokarbs.engine.session.MatchModeConfig;
-import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
 
 /**
@@ -25,10 +23,11 @@ import com.hydrokarbs.map.MapRegistry;
  * <p>三件事:
  * <ul>
  *   <li>{@link #saveDefaults()}——首次启动释放默认资源(已存在不覆盖,幂等;
- *       本阶段清单仅 {@code config.yml};{@code modes/}、{@code maps/} 的玩法实例
+ *       本阶段清单仅 {@code config.yml};{@code modes/} 的玩法实例
  *       由玩法线施工阶段追加);</li>
- *   <li>{@link #loadAll(Path)}——扫 {@code maps/*.yml} → {@link MapRegistry}、
- *       扫 {@code modes/*.yml} → 模式配置缓存、读 {@code config.yml} 主配置树。
+ *   <li>{@link #loadAll(Path)}——扫 {@code modes/*.yml} → 模式配置缓存、
+ *       读 {@code config.yml} 主配置树(地图不经配置装载——由外部调用方经
+ *       {@link MapRegistry} 注册,单注册通道)。
  *       <b>铁律 3(局部失败)</b>:单文件失败只跳过该文件并记 SEVERE(点名文件),
  *       不中断整体装载;目录缺席/为空 = 空目录合法,不抛;</li>
  *   <li>{@link ConfigView} 实现——主配置的惰性只读面(每次 {@code get} 下钻当前
@@ -118,13 +117,12 @@ public final class ConfigRepository implements ConfigView {
      */
     public void loadAll() throws IOException {
         mainConfig = loadMainConfig();
-        maps.replace(loadMaps());
         modeConfigs = loadModeConfigs();
-        logger.log(Level.INFO, "配置装载完成:地图 {0} 张,模式配置 {1} 份",
-                new Object[] { maps.all().size(), modeConfigs.size() });
+        logger.log(Level.INFO, "配置装载完成:模式配置 {0} 份(地图不经配置装载,由外部经 MapRegistry 注册)",
+                new Object[] { modeConfigs.size() });
     }
 
-    /** 地图目录(引用原子替换语义见 {@link MapRegistry})。 */
+    /** 地图目录(引用原子替换语义见 {@link MapRegistry};条目全部来自外部注册)。 */
     public MapRegistry maps() {
         return maps;
     }
@@ -189,18 +187,6 @@ public final class ConfigRepository implements ConfigView {
         }
     }
 
-    private List<MapDefinition> loadMaps() throws IOException {
-        List<MapDefinition> loaded = new ArrayList<>();
-        for (Path file : listYaml(mapsDir())) {
-            try {
-                loaded.add(codec.readMap(file));
-            } catch (ConfigException e) {
-                logger.log(Level.SEVERE, "地图文件装载失败,跳过该文件(铁律 3): " + file, e);
-            }
-        }
-        return List.copyOf(loaded);
-    }
-
     private Map<String, MatchModeConfig> loadModeConfigs() throws IOException {
         Map<String, MatchModeConfig> loaded = new LinkedHashMap<>();
         for (Path file : listYaml(modesDir())) {
@@ -212,10 +198,6 @@ public final class ConfigRepository implements ConfigView {
             }
         }
         return Map.copyOf(loaded);
-    }
-
-    private Path mapsDir() {
-        return dataDir.resolve("maps");
     }
 
     private Path modesDir() {

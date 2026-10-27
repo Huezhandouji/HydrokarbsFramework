@@ -12,6 +12,7 @@ import com.hydrokarbs.map.MapDefinition;
  * 模式与组件无感,只消费世界句柄上的只读数据。
  * 同一 (map, session) 重复获取幂等返回同句柄;引用计数归零按句柄的
  * {@link ResetStrategy} 处置副本。释放幂等,重复无害。
+ * 会话解散经 {@link #discardSession(SessionId)} 关闭复用窗口。
  */
 public interface WorldPort {
 
@@ -23,4 +24,17 @@ public interface WorldPort {
 
     /** 引用计数归零 → 按句柄的 {@link ResetStrategy} 处置副本。幂等。 */
     CompletableFuture<Void> release(WorldHandle handle);
+
+    /**
+     * 销毁该会话名下的全部世界副本(会话解散时调用,覆盖三类):
+     * 计数表中该会话的存活条目(移除并逐句柄卸载不存档 + 删目录)、
+     * 曾切换离开而保留在磁盘的目录、迟到的 in-flight 获取(其后的归零处置
+     * 发现会话已死一律删)。
+     *
+     * <p><b>复用窗口 = 会话生命周期</b>:解散即关闭窗口——无论
+     * {@link ResetStrategy} 一律删除副本目录(会话已死,复用收益失效)。
+     * 幂等:重复调用无害。处置动作全部完成后 future 才完成
+     * (与 {@link #release(WorldHandle)} 完成语义同源)。
+     */
+    CompletableFuture<Void> discardSession(SessionId session);
 }

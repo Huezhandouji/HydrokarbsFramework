@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.engine.component.SessionComponentContributionRegistry;
 import com.hydrokarbs.engine.event.SessionEventBus;
@@ -59,6 +61,7 @@ import com.hydrokarbs.api.view.SessionInfo;
 import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
 import com.hydrokarbs.map.RegionSet;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
 
 import net.kyori.adventure.text.Component;
@@ -71,13 +74,16 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * <p>覆盖六组:①快照不变性(取快照后改 fake 名册,旧 SessionInfo.members 不变);
  * ②会话不存在 switchMode 完成 Rejected(MODE_NOT_FOUND) 且旧会话无扰动;③线程断言
  * (fake 记录的调用线程 = 注入的主线程执行器线程,§14.1);④目录顺序 = 注册序
- * (不排序不过滤,14.21);⑤createSession 未知模式响亮抛、成功路径返回快照与
+ * (不排序不过滤,14.21);⑤createSession(recipe) 未知模式响亮抛、成功路径返回快照与
  * fake 会话一致;⑥视图 record 分量无引擎活类型(反射)。
  *
  * <p>离线:零 Bukkit import/静态调用(paper-api 仅 testRuntimeOnly 进运行期,
  * 同 OfflineAssembly.FakePlatform 先例);假会话用引擎真 Session(离线可构造)。
  */
 class MiniGameApiImplTest {
+
+    @TempDir
+    Path tempDir;
 
     private MatchModeRegistry modeRegistry;
     private MapRegistry mapRegistry;
@@ -89,7 +95,8 @@ class MiniGameApiImplTest {
     void setUp() {
         // 配置源全回落缺省(复用 testkit 手法;装载链已由 ConfigRepositoryTest 覆盖)
         modeRegistry = new MatchModeRegistry(id -> OfflineAssembly.cfg());
-        mapRegistry = new MapRegistry();
+        // 地图目录带模板根(必填;注册期模板目录校验依据——造数走 MapTestKit fixture)
+        mapRegistry = new MapRegistry(templatesRoot());
         fakeService = new FakeSessionService();
         // 注入单线程假主线程(生产行 = Threads::runOnMain;离线以可指认线程替代)
         mainExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -98,14 +105,21 @@ class MiniGameApiImplTest {
             return thread;
         });
         // 7.5 构造增量:能力标签机制件 + ⑨ 汇聚总线 + D14 贡献收录表(空表;本测试零消费,
-        //   增量行为由 MiniGameApiMembersTest/MiniGameApiEventsTest/ContributionTest 承载)
+        //   增量行为由 MiniGameApiMembersTest/MiniGameApiEventsTest/ContributionTest 承载);
+        //   ★v1.5 构造增量:fallbackModeId 空读口(本测试不消费摘除回退编排)
         api = new MiniGameApiImpl(fakeService, modeRegistry, mapRegistry, new CapabilityRegistry(),
-                new SessionEventBus(), new SessionComponentContributionRegistry(), mainExecutor);
+                new SessionEventBus(), new SessionComponentContributionRegistry(), mainExecutor,
+                () -> "");
     }
 
     @AfterEach
     void tearDown() {
         mainExecutor.shutdownNow();
+    }
+
+    /** 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定)。 */
+    private Path templatesRoot() {
+        return tempDir.resolve("maps").resolve("templates");
     }
 
     // ── ① 快照不变性(7.1 要点 1:转换点一次性取值,不持活引用) ──────────
@@ -181,21 +195,22 @@ class MiniGameApiImplTest {
         assertEquals("m1", fakeService.switchInvocations.get(0).targetModeId());
     }
 
-    // ── ④ 目录顺序 = 注册序/装载序(14.21:不排序、不过滤) ───────────────
+    // ── ④ 目录顺序 = 注册序(14.21:不排序、不过滤) ───────────────
 
     @Test
     void directoryOrderMatchesRegistrationOrder() {
         modeRegistry.register(provider("alpha"));
         modeRegistry.register(provider("beta"));
         modeRegistry.register(provider("gamma"));
-        mapRegistry.replace(List.of(fullMap("map_a", "地图A"), minimalMap("map_b")));
+        MapTestKit.registered(mapRegistry, templatesRoot(), fullMap("map_a", "地图A"));
+        MapTestKit.registered(mapRegistry, templatesRoot(), minimalMap("map_b"));
 
         assertEquals(List.of("alpha", "beta", "gamma"),
                 api.modes().stream().map(MatchModeInfo::id).toList(),
                 "modes() 顺序 = 注册序,不排序不过滤(14.21)");
         assertEquals(List.of("map_a", "map_b"),
                 api.maps().stream().map(MapInfo::id).toList(),
-                "maps() 顺序 = 装载序");
+                "maps() 顺序 = 注册序");
 
         assertTrue(api.mode("beta").isPresent());
         assertEquals("beta", api.mode("beta").orElseThrow().id());
@@ -206,7 +221,8 @@ class MiniGameApiImplTest {
     @Test
     void directorySnapshotsMapFieldsPerContract() {
         modeRegistry.register(provider("alpha"));
-        mapRegistry.replace(List.of(fullMap("map_a", "地图A"), minimalMap("map_b")));
+        MapTestKit.registered(mapRegistry, templatesRoot(), fullMap("map_a", "地图A"));
+        MapTestKit.registered(mapRegistry, templatesRoot(), minimalMap("map_b"));
 
         MatchModeInfo modeInfo = api.mode("alpha").orElseThrow();
         assertTrue(modeInfo.displayName().startsWith("<red>") && modeInfo.displayName().contains("竞技"),
@@ -229,18 +245,18 @@ class MiniGameApiImplTest {
         assertEquals("REUSE_DIRTY", minimal.resetStrategy(), "reset-strategy 缺省 = REUSE_DIRTY");
     }
 
-    // ── ⑤ createSession:未知模式响亮抛;成功路径返回快照与 fake 会话一致 ──
+    // ── ⑤ createSession(recipe):未知模式响亮抛;成功路径返回快照与 fake 会话一致 ──
 
     @Test
     void createSessionRejectsUnknownModeLoudlyAndSnapshotsCreatedSession() {
         modeRegistry.register(provider("m1"));
 
         NoSuchElementException thrown = assertThrows(NoSuchElementException.class,
-                () -> api.createSession("ghost-mode", "map_a"),
+                () -> api.createSession(SessionRecipe.of("ghost-mode", "map_a")),
                 "未知模式响亮抛(引擎既有 require 口径,§12.1)");
         assertTrue(thrown.getMessage().contains("ghost-mode"), "异常点名未知模式 id");
 
-        SessionInfo info = api.createSession("m1", "map_a");
+        SessionInfo info = api.createSession(SessionRecipe.of("m1", "map_a"));
         Session created = fakeService.session(new SessionId(info.sessionId())).orElseThrow();
         assertEquals(created.id().value(), info.sessionId(), "快照与 fake 会话一致: sessionId");
         assertEquals("", info.modeId(), "首切换在途,无实例 → 空串(空串口径)");
@@ -251,11 +267,11 @@ class MiniGameApiImplTest {
 
         SessionSpec spec = fakeService.createdSpecs.get(0);
         assertEquals("m1", spec.initialModeId(), "initialModeId 透传");
-        assertEquals(List.of("map_a"), spec.mapPool(), "指定图 = 会话地图池单元素(私设竞技场钉图)");
+        assertEquals(List.of("map_a"), spec.mapPool(), "指定图 = 会话地图池单元素(钉图置池首)");
 
-        api.createSession("m1", "   ");
+        api.createSession(SessionRecipe.of("m1", "   "));
         assertEquals(List.of(), fakeService.createdSpecs.get(1).mapPool(),
-                "空白 mapId = 空池自动挑图");
+                "空白图 = 空池自动挑图");
     }
 
     // ── ⑥ 视图纯净:record 分量零引擎类型 + 泛型元素类型补断言 ────────────
@@ -288,7 +304,7 @@ class MiniGameApiImplTest {
         assertEquals(MatchModeInfo.class,
                 actualTypeArgument(MiniGameApi.class.getMethod("mode", String.class)));
         assertEquals(SessionInfo.class, MiniGameApi.class
-                .getMethod("createSession", String.class, String.class).getReturnType());
+                .getMethod("createSession", SessionRecipe.class).getReturnType());
     }
 
     private static Class<?> actualTypeArgument(Method method) {

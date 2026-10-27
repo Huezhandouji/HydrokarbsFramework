@@ -39,7 +39,6 @@ import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionService;
 import com.hydrokarbs.engine.session.SessionServiceImpl;
-import com.hydrokarbs.listener.ProviderServiceListener;
 import com.hydrokarbs.listener.ProviderUnloadListener;
 import com.hydrokarbs.listener.SessionIngestListener;
 import com.hydrokarbs.service.GlobalBoard;
@@ -154,23 +153,20 @@ public final class HydrokarbsAssembly {
 
         plugin.getServer().getPluginManager()
                 .registerEvents(new SessionIngestListener(sessionSvc), plugin);   // ⑫ 会话入口监听
-        // ⑫b 第三方收录/摘除监听(7.2 + 7.5-D14):构造期 loadAll 补收录先启第三方,
-        //     ServiceRegisterEvent/ServiceUnregisterEvent 动态增删(§13.4;事件即权威,不轮询)
-        plugin.getServer().getPluginManager().registerEvents(
-                new ProviderServiceListener(modeRegistry, sessionSvc, cfg, contributions,
-                        plugin.getLogger()), plugin);
         MatchCommand.register(plugin, sessionSvc, modeRegistry);                  // ⑬ Brigadier 主命令
 
         // ⑭ 公共 API 注册(ServicesManager 同一机制,ServicePriority.Normal——§7.2 表;
-        //    薄委托实现,主线程回程口 = Threads::runOnMain;v3 冻结面 = 16 方法)
+        //    薄委托实现,主线程回程口 = Threads::runOnMain;★v1.5 冻结面 = 19 方法;
+        //    fallbackModeId 惰性读 session.fallback-mode——摘除回退编排的配置源,§14.21)
         var miniGameApi = new MiniGameApiImpl(sessionSvc, modeRegistry,
                 configRepository.maps(), capabilities, sessionEvents, contributions,
-                Threads::runOnMain);
+                Threads::runOnMain, () -> cfg.get("session.fallback-mode", ""));
         plugin.getServer().getServicesManager()
                 .register(MiniGameApi.class, miniGameApi, plugin, ServicePriority.Normal);
-        // ⑭b 插件卸载兜底监听(14.38/D8/★v1.2):按提供方摘能力标签/注册式地图/贡献
+        // ⑭b 插件卸载兜底监听(14.38/D8/★v1.2/★v1.5):按提供方摘能力标签/显式模式/
+        //     注册式地图/贡献(模式摘除带会话回退编排)
         plugin.getServer().getPluginManager().registerEvents(
-                new ProviderUnloadListener(miniGameApi, contributions, plugin.getLogger()), plugin);
+                new ProviderUnloadListener(miniGameApi), plugin);
 
         return new Context(services, ticker, sessionSvc, worldIo, miniGameApi);
     }

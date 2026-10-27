@@ -369,6 +369,10 @@ class ModeSwitchAtomicityTest {
                 "发解散事件(原因 FALLBACK_DISSOLVE)");
         assertEquals(1, fx.harness.relocations.size(), "全员传送主城的函数被调用(三级接缝)");
         assertEquals(3, fx.harness.relocations.get(0).size(), "三人都被安置");
+        // ★v1.4 解散销毁世界副本:dissolveNow 的 finally 发起 discardSession(幂等解散恰一次)
+        assertEquals(1, fx.harness.worlds.discardCount, "解散应触发 discardSession 恰一次");
+        assertEquals(fx.session.id(), fx.harness.worlds.discardedSessions.get(0),
+                "销毁目标 = 被解散的会话");
         assertTrue(fx.harness.logLines.stream().anyMatch(line -> line.startsWith("SEVERE")),
                 "二级回退记 SEVERE 日志");
     }

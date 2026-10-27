@@ -1,6 +1,8 @@
 package com.hydrokarbs.testkit;
 
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -15,7 +17,8 @@ import com.hydrokarbs.map.MapDefinition;
 /**
  * 世界端口假件(2.3 切换链路离线测试):获取行为可注入(即时成功/注入失败——
  * 超时与失败共用同一完成回调分支,注入 {@code TimeoutException} 即覆盖超时路径);
- * 释放为空操作。世界对象用动态代理占位(测试类型签名引用 Bukkit 类型、传代理不碰
+ * 释放为空操作;会话销毁计数并按序记录被销毁的会话 id(解散触发断言用)。
+ * 世界对象用动态代理占位(测试类型签名引用 Bukkit 类型、传代理不碰
  * Bukkit 静态——句柄只存引用不调方法)。
  */
 public final class FakeWorldPort implements WorldPort {
@@ -38,6 +41,10 @@ public final class FakeWorldPort implements WorldPort {
     public int acquireCount;
     /** 释放计数。 */
     public int releaseCount;
+    /** 会话销毁计数(解散触发 discardSession 断言用)。 */
+    public int discardCount;
+    /** 被销毁的会话 id(按调用序记录;既有 acquire/release 计数不变)。 */
+    public final List<SessionId> discardedSessions = new ArrayList<>();
 
     private FakeWorldPort(Function<MapDefinition, CompletableFuture<WorldHandle>> behavior) {
         this.behavior = behavior;
@@ -70,6 +77,14 @@ public final class FakeWorldPort implements WorldPort {
     @Override
     public CompletableFuture<Void> release(WorldHandle handle) {
         releaseCount++;
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletableFuture<Void> discardSession(SessionId session) {
+        Objects.requireNonNull(session, "session");
+        discardCount++;
+        discardedSessions.add(session);
         return CompletableFuture.completedFuture(null);
     }
 }

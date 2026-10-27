@@ -7,8 +7,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -41,6 +43,14 @@ import com.hydrokarbs.map.MapDefinition;
  *
  * <p><b>安全边界</b>:副本目录的创建/清空/删除全部限定在「副本根下、文件名恰为
  * {@code <mapId>-<会话短码>}」的路径形态内,删前断言路径形态——绝不递归删除任意路径。
+ *
+ * <p><b>复用窗口 = 会话生命周期</b>:{@code REUSE_DIRTY} 的复用只发生在同会话
+ * (副本目录名含会话短码,天然不跨会话);会话解散经 {@link #discardSession}
+ * 关闭窗口——曾发放的副本目录(含切换离开而保留在磁盘的)一律销毁。端口两侧
+ * 追踪保证销毁面完整:①「该会话曾发放过的 mapId 集」(acquire 发布点记录,
+ * discardSession 消费——按精确名删除,不用后缀猜测:短码本身可含 {@code '-'});
+ * ②「已死短码集」(discardSession 记入)——此后任何归零处置(含迟到 in-flight
+ * 经 {@code onWorldReady} 释放的)发现短码已死,无论策略一律删目录。
  *
  * <p><b>超时即失败,不降级</b>:整体 {@code orTimeout(默认 30s)}(§3.5 防护④);
  * 超时/失败/缺模板 → future 异常完成 + 清 in-flight,计数未入表;超时后迟到的复制
@@ -77,6 +87,15 @@ public final class WorldPortImpl implements WorldPort {
     /** 进行中的获取(同 key 并发 miss 合并:后到者等待同一 future)。 */
     private final ConcurrentHashMap<CountKey, CompletableFuture<WorldHandle>> inFlight =
             new ConcurrentHashMap<>();
+
+    /**
+     * 该会话曾发放过的 mapId 集(session → 集;acquire 发布点记录,discardSession 消费)——
+     * 销毁「条目已随早前归零移除、目录仍保留在磁盘」的副本唯一可查的名册。
+     */
+    private final ConcurrentHashMap<SessionId, Set<String>> issuedMaps = new ConcurrentHashMap<>();
+
+    /** 已死会话短码集(discardSession 记入):归零处置的删除判据之一(§discardSession)。 */
+    private final Set<String> deadShortCodes = ConcurrentHashMap.newKeySet();
 
     /**
      * @param worldLoader          主线程世界装卸缝(生产 {@link BukkitWorldLoader})
@@ -175,6 +194,13 @@ public final class WorldPortImpl implements WorldPort {
             // ⑥ 入表 +1(先到者的引用)、清 in-flight
             RefEntry entry = new RefEntry(handle);
             entry.count.set(1);
+            // ★ 发布点记录「曾发放」:discardSession 依据此集销毁已保留的副本目录。
+            //   会话已死(解散后才完成的迟到发布)不再记录——其目录由归零处置的
+            //   已死短码判据删除,不留给死会话一个无人消费的名册条目。
+            if (!deadShortCodes.contains(key.session().shortCode())) {
+                issuedMaps.computeIfAbsent(key.session(), s -> ConcurrentHashMap.newKeySet())
+                        .add(key.mapId());
+            }
             table.put(key, entry);
             inFlight.remove(key, pending);
             // ⑦ 完成 future;complete 失败 = 超时恰在入表后抢先 → 回滚本次发放,不留无主句柄
@@ -228,13 +254,20 @@ public final class WorldPortImpl implements WorldPort {
         String shortCode = key.session().shortCode();
         String mapId = key.mapId();
         CompletableFuture<Void> done = new CompletableFuture<>();
-        mainExecutor.execute(() -> disposeAfterZero(handle, mapId, shortCode, done));
+        mainExecutor.execute(() -> disposeHandle(handle, mapId, shortCode, done));
         return done;
     }
 
-    /** ④~⑥(主线程):卸载(不存档)→ 按策略处置副本目录;卸载失败 SEVERE + 保留目录。 */
-    private void disposeAfterZero(WorldHandle handle, String mapId, String shortCode,
-                                  CompletableFuture<Void> done) {
+    /**
+     * 归零/销毁的逐句柄处置(④~⑥,主线程):卸载(不存档)→ 按判据处置副本目录;
+     * 卸载失败 SEVERE + 保留目录(不阻塞调用方)。
+     *
+     * <p><b>删除判据</b>:{@code TEMPLATE_RESTORE},或会话短码已死
+     * (复用窗口 = 会话生命周期——解散后迟到的归零处置,无论策略一律删)。
+     * 存活会话的 {@code REUSE_DIRTY} 归零仍保留目录(切换离开的复用语义零改动)。
+     */
+    private void disposeHandle(WorldHandle handle, String mapId, String shortCode,
+                               CompletableFuture<Void> done) {
         boolean unloaded;
         try {
             // 卸载不存档:副本是临时实例,内容处置归 ResetStrategy(模板才是母本)
@@ -251,9 +284,9 @@ public final class WorldPortImpl implements WorldPort {
             done.complete(null);
             return;
         }
-        // ⑤ 按策略分派:REUSE_DIRTY 保留副本目录(同会话再次获取直接复载该目录,
-        // 目录名含会话短码,天然不会跨会话混用);TEMPLATE_RESTORE 删除目录(IO 线程)
-        if (handle.reset() == ResetStrategy.TEMPLATE_RESTORE) {
+        // ⑤ 按判据分派:TEMPLATE_RESTORE 删目录;REUSE_DIRTY 保留副本目录
+        //    (同会话再次获取直接复载该目录)——但短码已死则一律删(IO 线程)
+        if (handle.reset() == ResetStrategy.TEMPLATE_RESTORE || deadShortCodes.contains(shortCode)) {
             ioExecutor.execute(() -> {
                 try {
                     deleteCopyDir(mapId, shortCode);
@@ -267,6 +300,72 @@ public final class WorldPortImpl implements WorldPort {
         } else {
             done.complete(null);
         }
+    }
+
+    // ── 会话销毁:复用窗口随会话解散关闭 ───────────────────────────
+
+    /**
+     * 会话名下全部副本销毁(三类覆盖,见 {@link WorldPort#discardSession}):
+     * ① 短码记入已死集(此后任何归零处置——含迟到 in-flight 经 onWorldReady 的
+     * 释放——发现短码已死,无论策略一律删目录);② 计数表该会话的存活条目:
+     * 先摘条目再逐句柄卸载不存档 + 删目录(会话已死,复用收益失效,策略无关);
+     * ③ 曾发放而已「保留」在磁盘的目录:排空发布点记录的 mapId 集,按精确名
+     * {@code mapId + "-" + 短码} 删除(不经后缀猜测;存活条目已覆盖的 mapId
+     * 不重复派删)。幂等:重复调用短码重记、条目已空、名册已空,零副作用。
+     * 失败路径与 {@link #release} 同源 best-effort(删除失败 WARN,残留兜底)。
+     */
+    @Override
+    public CompletableFuture<Void> discardSession(SessionId session) {
+        java.util.Objects.requireNonNull(session, "session");
+        String shortCode = session.shortCode();
+        // ① 已死短码:先记,再处置(判据随记随生效)
+        deadShortCodes.add(shortCode);
+        // ② 存活条目:先摘(双保险纪律在端口内部消化)再逐句柄处置
+        Map<String, WorldHandle> liveByMap = new LinkedHashMap<>();
+        for (Map.Entry<CountKey, RefEntry> row : table.entrySet()) {
+            if (row.getKey().session().equals(session)
+                    && table.remove(row.getKey(), row.getValue())) {
+                liveByMap.put(row.getKey().mapId(), row.getValue().handle);
+            }
+        }
+        // ③ 曾发放的名册:排空(会话已死,不再有发布点写入);
+        //    存活条目将卸载+删除同一目录,不重复派删
+        Set<String> issued = issuedMaps.remove(session);
+        Set<String> retainedOnly = issued == null ? Set.of()
+                : orderedWithout(issued, liveByMap.keySet());
+        List<CompletableFuture<Void>> disposals = new java.util.ArrayList<>();
+        for (Map.Entry<String, WorldHandle> live : liveByMap.entrySet()) {
+            CompletableFuture<Void> per = new CompletableFuture<>();
+            mainExecutor.execute(() -> disposeHandle(live.getValue(), live.getKey(), shortCode, per));
+            disposals.add(per);
+        }
+        for (String mapId : retainedOnly) {
+            CompletableFuture<Void> per = new CompletableFuture<>();
+            ioExecutor.execute(() -> {
+                try {
+                    deleteCopyDir(mapId, shortCode);
+                } catch (Throwable t) {
+                    log.log(Level.WARNING, "删除副本目录失败(残留由下轮获取的清残留兜底): "
+                            + mapId + "-" + shortCode, t);
+                } finally {
+                    per.complete(null);        // 处置动作完成后才完成
+                }
+            });
+            disposals.add(per);
+        }
+        // 处置动作全部提交后完成;各处置 future 完成点 = 卸载/删除落定(与 release 同源)
+        return CompletableFuture.allOf(disposals.toArray(new CompletableFuture<?>[0]));
+    }
+
+    /** 有序剔除已由存活条目处置覆盖的 mapId(LinkedHashSet 保排空序,便于读日志)。 */
+    private static Set<String> orderedWithout(Set<String> issued, Set<String> covered) {
+        Set<String> rest = new LinkedHashSet<>();
+        for (String mapId : issued) {
+            if (!covered.contains(mapId)) {
+                rest.add(mapId);
+            }
+        }
+        return rest;
     }
 
     // ── 副本目录的复制与处置(安全边界在此) ─────────────────────────

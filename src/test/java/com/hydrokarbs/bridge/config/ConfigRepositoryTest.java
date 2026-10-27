@@ -1,7 +1,6 @@
 package com.hydrokarbs.bridge.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -95,26 +94,6 @@ class ConfigRepositoryTest {
     }
 
     @Test
-    void corruptedMapFileIsSkippedWithSevereWhileOthersLoad() throws IOException {
-        Files.createDirectories(dataDir.resolve("maps"));
-        Files.writeString(dataDir.resolve("maps/good.yml"), """
-                id: good_map
-                world: w
-                tags: [pvp]
-                """, StandardCharsets.UTF_8);
-        Files.writeString(dataDir.resolve("maps/broken.yml"), """
-            id: [unclosed
-            """, StandardCharsets.UTF_8);
-
-        repository.loadAll();
-
-        Path broken = dataDir.resolve("maps/broken.yml");
-        assertTrue(hasSevereNaming(broken), "坏文件必须 SEVERE 点名(铁律 3)");
-        assertEquals(1, repository.maps().all().size());
-        assertTrue(repository.maps().byId("good_map").isPresent());
-    }
-
-    @Test
     void corruptedModeFileIsSkippedWhileOthersLoad() throws IOException {
         Files.createDirectories(dataDir.resolve("modes"));
         Files.writeString(dataDir.resolve("modes/alpha.yml"),
@@ -152,17 +131,17 @@ class ConfigRepositoryTest {
 
     @Test
     void loadAllIsReentrantForHotReload() throws IOException {
-        Files.createDirectories(dataDir.resolve("maps"));
-        Files.writeString(dataDir.resolve("maps/m1.yml"), """
-                id: m1
-                world: w
-                tags: [a]
-                """, StandardCharsets.UTF_8);
+        Files.createDirectories(dataDir.resolve("modes"));
+        Files.writeString(dataDir.resolve("modes/m1.yml"),
+                "vote-seconds: 45\n", StandardCharsets.UTF_8);
         repository.loadAll();
-        assertTrue(repository.maps().byId("m1").isPresent());
+        assertEquals(45, repository.modeConfig("m1").getInt("vote-seconds", 30));
 
-        Files.delete(dataDir.resolve("maps/m1.yml"));
+        // /reload 语义:文件换新 → 再次 loadAll → 缓存重建读到新值(★39 惰性主配置同款)
+        Files.writeString(dataDir.resolve("modes/m1.yml"),
+                "vote-seconds: 77\n", StandardCharsets.UTF_8);
         repository.loadAll();
-        assertFalse(repository.maps().byId("m1").isPresent(), "全量替换:旧文件消失即摘除");
+        assertEquals(77, repository.modeConfig("m1").getInt("vote-seconds", 30),
+                "全量装载重入:文件换新后读到新值");
     }
 }

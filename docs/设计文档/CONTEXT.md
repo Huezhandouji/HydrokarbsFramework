@@ -1,13 +1,13 @@
 # CONTEXT.md — 领域术语表(HydroKarbs MiniGame Framework)
 
-> HydroKarbs MiniGame Framework · v1.3(现行;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
-> 本文件只放术语与定义,不放实现细节。源自上游 v4.1 设计案(同源复制后按 v1.0 剥离玩法重构,上游代号见上方版本行与本表「代号」节;v1.1 修正案见 19/ADR-0007;v1.3 修正案见 21/ADR-0009);本文件夹的 README 有最终解释权。SHDF 扩展线术语见节题框注。
+> HydroKarbs MiniGame Framework · v1.6(现行;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册通道收敛;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
+> 本文件只放术语与定义,不放实现细节。源自上游 v4.1 设计案(同源复制后按 v1.0 剥离玩法重构,上游代号见上方版本行与本表「代号」节;v1.1 修正案见 19/ADR-0007;v1.3 修正案见 21/ADR-0009;v1.4 修正案见 22;v1.5 修正案见 23;v1.6 变更见 24 号修正案——正文落盘前以施工计划 README ★v1.6 横幅为准);本文件夹的 README 有最终解释权。SHDF 扩展线术语见节题框注。
 
 ## 代号
 
 | 术语 | 定义 |
 |---|---|
-| **HydroKarbs MiniGame Framework(简称 **HKF**;v1.0 / v1.1 / v1.2 / v1.3)** | 本术语表所属框架的代号:自 SHDFMatch 设计案 v4.1 剥离全部具体玩法重构而成的纯框架(v1.0);v1.1(2026-10-23,框架独立插件化拆分与 API 面扩充,见 19 与 docs/adr/0007);v1.2(2026-10-23,地图注册通道,见 20 与 docs/adr/0008);当前版本 **v1.3(2026-10-25,框架基础设施瘦身与配置中立化,见 21 与 docs/adr/0009:持久化与表现层出框架、发行配置零玩法缺省、启动建会话特性删除与会话创建权移交宿主)**。行文简称 **HKF**(HydroKarbs MiniGame Framework 的缩写;插件名 `HydroKarbs`、类名 `HydroKarbsPlugin`/`HydroKarbsAssembly` 与包根 `com.hydrokarbs` 是标识符,不是简称,不随本条变化)。装配类名相应为 HydroKarbsAssembly / HydroKarbsPlugin,框架 Java 包根为 `com.hydrokarbs.*`(D13,旧根 `com.shdf.match` 废止)。具体玩法(大厅/四模式)与角色系统接入(SHDF 宿主扩展)的实现见 Shdf具体玩法设计案/;SHDFMatch 为历史代号,存档于 17/18 与 docs/adr/,不改。 |
+| **HydroKarbs MiniGame Framework(简称 **HKF**;v1.0 / v1.1 / v1.2 / v1.3 / v1.4 / v1.5 / v1.6)** | 本术语表所属框架的代号:自 SHDFMatch 设计案 v4.1 剥离全部具体玩法重构而成的纯框架(v1.0);v1.1(2026-10-23,框架独立插件化拆分与 API 面扩充,见 19 与 docs/adr/0007);v1.2(2026-10-23,地图注册通道,见 20 与 docs/adr/0008);v1.3(2026-10-25,框架基础设施瘦身与配置中立化,见 21 与 docs/adr/0009:持久化与表现层出框架、发行配置零玩法缺省、启动建会话特性删除与会话创建权移交宿主);v1.4(2026-10-27,API 面与地图注册通道收敛,见 22:两参 createSession 重载删除、建会话公共面唯一形态、配置文件声明地图特性删除与地图注册通道唯一);v1.5(2026-10-27,世界副本复用窗口 = 会话生命周期,见 23:REUSE_DIRTY 副本目录在其所属会话解散后全部销毁,窗口关闭即回收);当前版本 **v1.6(2026-10-27,显式注册收敛,见 24 号修正案——正文落盘前以施工计划 README ★v1.6 横幅为准:模式/会话组件改经 `MiniGameApi` 显式注册四法,ServicesManager 提供方通道退场,`SessionComponentProvider` SPI 删除,API_VERSION 4→5)**。行文简称 **HKF**(HydroKarbs MiniGame Framework 的缩写;插件名 `HydroKarbs`、类名 `HydroKarbsPlugin`/`HydroKarbsAssembly` 与包根 `com.hydrokarbs` 是标识符,不是简称,不随本条变化)。装配类名相应为 HydroKarbsAssembly / HydroKarbsPlugin,框架 Java 包根为 `com.hydrokarbs.*`(D13,旧根 `com.shdf.match` 废止)。具体玩法(大厅/四模式)与角色系统接入(SHDF 宿主扩展)的实现见 Shdf具体玩法设计案/;SHDFMatch 为历史代号,存档于 17/18 与 docs/adr/,不改。 |
 
 ## 交付形态(v1.1)
 
@@ -17,10 +17,10 @@
 | **玩法插件(Gameplay Plugin / 宿主插件)** | 消费框架的插件(如 SHDF):`MatchModeProvider` 模式工厂、私有组件、宿主桥接(如 `bridge/role`)、玩法命令与监听;`plugin.yml: depend: [HydroKarbs]`;独立顶级包根(宿主 = `com.shdf.*`,旧根 `com.shdf.match` 不复用,D13)。 |
 | **伴随插件(Companion Plugin)** | 消费框架的第三方插件(13 §13.9 案②的既有形态):只消费 `MiniGameApi` 公共面——完整权限面见 07 §7.5(查询+控制+成员+事件+能力+会话定制);v1.1 起经扩充后的 `MiniGameApi` 拥有完整执行权(19-§1 术语表)。 |
 | **API 编译面(API Surface)** | 玩法/伴随插件 compileOnly 依赖框架 jar 时**允许 import 的白名单包集**(19-D6;清单落 07 §7.2 与 7.5 施工文档);由 `ApiSurfaceTest` 双断言冻结(★44:MiniGameApi 签名零非白名单类型 + 白名单公开签名快照只增不改),与 `MiniGameApiSurfaceTest`(★19)互补。永不导出:`SessionService(Impl)`、`EngineTicker`、`WorldPort`、`ServiceRegistry` 族、`ComponentRegistry` 族、`bridge/**`、各 Impl。(**★v1.3**:原反面词表中的 `PersistencePort` 与 `data/**` 为历史口径——持久化已整体出框架基线,该包不存在,21-D1。) |
-| **API_VERSION** | 框架 API 面的版本常量(19-D7):v1.0 = 1,v1.1 = 2,v1.2 = 3,只增不减;玩法/伴随插件 `onEnable` 首行检查,低于要求 → SEVERE + `setEnabled(false)`(拒载不崩服);破坏性变更必须升版本并至多一个次要版本双轨过渡(One-Version Rule)。(**★v1.3**:v1.3 不改任何 API 方法,API_VERSION **维持 3**;07 查战绩面随 R1 悬置,回填裁决见 21 §6-Q1。) |
+| **API_VERSION** | 框架 API 面的版本常量(19-D7):v1.0 = 1,v1.1 = 2,v1.2 = 3,v1.4 = 4,v1.6 = 5,只增不减;玩法/伴随插件 `onEnable` 首行检查,低于要求 → SEVERE + `setEnabled(false)`(拒载不崩服);破坏性变更必须升版本并至多一个次要版本双轨过渡(One-Version Rule)。(**★v1.3**:v1.3 不改任何 API 方法,API_VERSION **维持 3**;07 查战绩面随 R1 悬置,回填裁决见 21 §6-Q1。)(**★v1.4(22 号)**:两参 `createSession(String,String)` 重载删除(破坏性收敛,未设双轨窗口),API_VERSION 3 → **4**;建会话公共面仅剩 `createSession(SessionRecipe)` 唯一形态;★19/★44 冻结测试与版本常量随本裁决合法更新。)(**★v1.6(24 号)**:显式注册收敛——`SessionComponentProvider` SPI 删除与 ServicesManager 提供方通道退场为破坏性变更,未设双轨窗口,API_VERSION 4 → **5**;冻结面 15 → 19 方法,★19/★44 冻结测试(FROZEN 19 行、BASELINE 重录)随本裁决合法更新。) |
 | **双形态交付(G1/G2)** | 形态 A(单 jar,现状:框架+宿主同 jar;宿主代码按白名单纪律写,仅 L0 装配/监听/命令三处豁免)与形态 B(双 jar 物理拆分);同一套源码与同一验收集,形态 B 是超集交付、不是分叉。两道闸门:**G1** = API 面扩充并在形态 A 下彩排全绿(★41~★46/★51~★55,含 ★v1.2 地图注册);**G2** = G1 全绿**且**首个真实跨 jar 消费者出现(A13)后执行物理拆分(★47~★50;★50 断言双形态等价)(19-D11)。 |
-| **SessionRecipe(会话配方)** | ★v1.1-D14 通道二:`createSession(SessionRecipe)` 重载携带 `extraComponents`(单次贡献会话组件);与 L0 拓扑表、provider 贡献合并后统一 `verifyDependencies`,查重/缺依赖 → `createSession` 响亮失败。既有两参 `createSession` 保留,等价于空 recipe;`engine.session.SessionSpec` 保持内部(recipe→spec 由框架转换,外部不见)。(**★v1.3-D5**:「L0 拓扑表」废止——`SessionSpec` 由宿主构造传入 `create`,合并序 = 宿主组装的 spec.sessionComponents → provider → recipe;合并机制与冻结面签名不变,`initialModeId` 仍由调用方填。) |
-| **SessionComponentProvider(会话组件贡献者)** | ★v1.1-D14 通道一:插件(宿主/伴随)经 ServicesManager 注册的全局默认贡献;框架 `ServiceRegisterEvent` 收录时**干跑合并校验**(查重/依赖),坏 provider 拒收录(SEVERE 点名)、会话照常;收录后所有后续会话装配(含拓扑启动装配)合并其贡献;provider 插件 disable 后自后续装配摘除(已装配会话不受影响)。合并序 = L0 拓扑表 → 各 provider(注册序)→ recipe.extra;模式仍无权贡献(v4-D4 不变),无运行期增删。(**★v1.3-D5**:「拓扑启动装配」随启动建会话特性废止——框架 onEnable 零会话,贡献合并发生在**宿主每次调 `create`** 的装配期;合并序 = 宿主组装的 spec.sessionComponents → 各 provider → recipe.extra,机制不变。) |
+| **SessionRecipe(会话配方)** | ★v1.1-D14 通道二:`createSession(SessionRecipe)` 携带 `extraComponents`(单次贡献会话组件);与已收录贡献合并后统一 `verifyDependencies`,查重/缺依赖 → `createSession` 响亮失败。`engine.session.SessionSpec` 保持内部(recipe→spec 由框架转换,外部不见)。(**★v1.3-D5**:「L0 拓扑表」废止——`SessionSpec` 由宿主构造传入 `create`,合并序 = 宿主组装的 spec.sessionComponents → provider → recipe;合并机制与冻结面签名不变,`initialModeId` 仍由调用方填。)(**★v1.4(22 号)**:两参重载删除——本配方成为公共 API 建会话的**唯一形态**;两参旧载见「历史术语」表。)(**★v1.6(24 号)**:合并序中段的「provider 贡献」现指经 `registerSessionComponents` 显式注册收录的贡献(注册序)——原 `SessionComponentProvider` SPI 收录口径见「历史术语」表。) |
+| **SessionComponentProvider(会话组件贡献者)** | ★v1.1-D14 通道一:插件(宿主/伴随)经 ServicesManager 注册的全局默认贡献;框架 `ServiceRegisterEvent` 收录时**干跑合并校验**(查重/依赖),坏 provider 拒收录(SEVERE 点名)、会话照常;收录后所有后续会话装配合并其贡献;provider 插件 disable 后自后续装配摘除(已装配会话不受影响)。合并序 = 宿主组装的 spec.sessionComponents → 各 provider → recipe.extra;模式仍无权贡献(v4-D4 不变),无运行期增删。(**★v1.6(24 号):本词条整体退场**——SPI 接口随 ServicesManager 提供方通道退场删除;全局贡献改经 `MiniGameApi#registerSessionComponents(Plugin, specs)` 显式注册:干跑合并校验失败**响亮上抛**给调用方(注册闸只有一份,原「SEVERE 拒收录、会话照常」口径随通道退场)、同一提供方重复注册 = 幂等重收录、摘除 = `unregisterSessionComponents`;定义细节移「历史术语」表。) |
 
 ## 会话层
 
@@ -30,7 +30,7 @@
 | **SessionMember(会话成员)** | 会话级成员身份:uuid、连接态、加入时间。刻意不含 team/role/state——那些是实例概念。 |
 | **SessionRoster(名册)** | 一个会话全体 SessionMember 的登记簿。模式切换时名册**原地位移**,不搬数据。 |
 | **SessionService** | 框架内负责会话生命周期与模式切换的内核服务。`switchMode` 是它的一等方法。 |
-| **Dissolve(解散)** | 会话的终结:成员传回主城、释放世界、从注册表摘除。与"实例结束"是两回事。 |
+| **Dissolve(解散)** | 会话的终结:成员传回主城、释放世界(★v1.5:该会话名下全部世界副本一并销毁——复用窗口随会话解散关闭,23 号)、从注册表摘除。与"实例结束"是两回事。 |
 | **拓扑(Topology)** | 服务器部署会话的方式:rotation(单会话轮换)或 arena(多竞技场并行)。引擎不感知。(**★v1.3-D5**:不再是框架配置概念——`session.topology` 键删除、`HydroKarbsAssembly` 拓扑装配废止,**拓扑 = 宿主调几次 `SessionService.create(SessionSpec)` 的次数与参数**(会话创建权移交宿主);引擎零感知口径不变,零会话起服为合法状态。) |
 | **SessionComponent(会话级组件)** | ★v4:与实例级 MatchModeComponent 并列的第二挂载级,会话级行为单元基类。**每会话一份**、跨模式切换存活,随 dissolve 全灭;会话的策略与行为可下放于此(机制仍在内核)。 |
 | **SessionServices(svc)** | ★v4:会话组件的服务集 record,两成员封闭:(self, components)。构造期一次性注入,纪律与实例级 MatchModeInstanceServices 一致。 |
@@ -47,7 +47,7 @@
 | **Capability(能力标签)** | 外部插件能力标签(字符串)。MatchModeMeta.requiredCapabilities 声明,开局期校验;所需标签缺席时,声明它的模式被拒、其余模式照常。引擎不认识任何具体标签(v3.1);机制为框架口径,具体标签与注册方为 SHDF 扩展线词汇(见 Shdf具体玩法设计案/)。 |
 | **MatchModeComponent.Specification(装配描述符)** | 声明"这个组件怎么造":工厂、requires/requiresOptional 依赖类型、providedType(供给面)、checkMap(地图适配)。freeze() 产出不可变快照,同一 Spec 跨模式共享安全。 |
 | **ComponentEntry** | 描述符表条目:(工厂, 描述符类型, 提供类型, 必需依赖, 可选依赖) 的快照。不持有 Spec 对象。 |
-| **MatchModeProvider** | SPI 工厂接口 `{ id(); MatchMode build(cfg); }`。聚合根是 final 类,第三方经它注册模式;build 后不可追加组件(A9)。 |
+| **MatchModeProvider** | SPI 工厂接口 `{ id(); MatchMode build(cfg); requiredApiVersion()=1 }`。聚合根是 final 类;build 后不可追加组件(A9)。(**★v1.6(24 号)**:不再是跨插件的 ServicesManager 注册面——降格为 `MiniGameApi#registerMode(Plugin, factory)` 的**载荷**:第三方 `depend` 框架、`load(MiniGameApi)` 后在 onEnable 以它显式注册模式(注册闸 build→verifyDependencies→id 查重全响亮);本 jar 出厂模式仍经 ServiceLoader(`META-INF/services`)发现。) |
 | **Lobby(大厅)** | 示例模式(SHDF 提供):等人、投票、倒计时;用 Builder 声明的普通聚合根,零特权、可整体替换。(SHDF 扩展线示例,实现见 Shdf具体玩法设计案/04-大厅模式) |
 
 ## 实例运行层
@@ -113,16 +113,16 @@
 
 | 术语 | 定义 |
 |---|---|
-| **WorldPort(世界端口)** | 世界的实例化/引用计数/释放的端口。只有 SessionService 调用;模式与组件无感。 |
-| **世界模板(Template)** | 地图的世界母本(`maps/templates/<id>/`)。副本按 (map, session) 实例化。 |
-| **地图注册(registerMap)** | ★v1.2:宿主/伴随插件经 `MiniGameApi#registerMap(Plugin, MapDefinition)` 显式注册地图声明、`unregisterMap(Plugin, String)` 摘除——文件装载之外的**第二输入通道**,与文件式共用 `MapRegistry` 同一命名空间(重复 id 响亮点名先到者)。**地图交成品不交工厂**:`MapDefinition` 纯静态值,直接注册建好的实例合法(与模式必须交 `MatchModeProvider` 工厂相对,20-D1)。注册期校验 id/tags/**模板目录存在性**(宿主注册前须自行解包模板落盘,14.39);卸载走显式 + `PluginDisableEvent` 兜底,**有会话正用 → 摘除被拒**;注册式地图不经 `/sm reload maps`;`WorldPort` 世界生命周期不受注册通道影响(20-D7)。 |
-| **ResetStrategy(还原策略)** | 副本处置方式:REUSE_DIRTY(打完复用)或 TEMPLATE_RESTORE(删副本重复制)。 |
+| **WorldPort(世界端口)** | 世界的实例化/引用计数/释放/**副本销毁**的端口(engine 内部口,不经 `MiniGameApi`)。只有 SessionService 调用;模式与组件无感。(**★v1.5**:端口面 = `acquire`/`release`/`discardSession` 三方法——会话解散经 discardSession 销毁该会话名下全部副本,**复用窗口 = 会话生命周期**(★v1.5-D1,23 号);契约见 03 §3.7。) |
+| **世界模板(Template)** | 地图的世界母本(`maps/templates/<id>/`)。副本按 (map, session) 实例化。(★v1.5:副本复用只发生在会话存活期——会话解散后名下副本目录全部销毁,见 ResetStrategy 与 Dissolve。) |
+| **地图注册(registerMap)** | ★v1.2 引入、★v1.4 起为地图输入的**唯一通道**:宿主/伴随插件经 `MiniGameApi#registerMap(Plugin, MapDefinition)` 显式注册地图声明、`unregisterMap(Plugin, String)` 摘除;`MapRegistry` 只剩显式注册/摘除两口,**目录顺序 = 注册序**。**地图交成品不交工厂**:`MapDefinition` 纯静态值,直接注册建好的实例合法(与模式必须交 `MatchModeProvider` 工厂相对,20-D1)。注册期校验 id(重复点名先到者)/tags/**模板目录存在性**(宿主注册前须自行解包模板落盘,14.39);卸载走显式 + `PluginDisableEvent` 兜底,**有会话正用 → 摘除被拒**(20-D4 守卫语义);地图声明不经任何 reload(所有权在提供方插件,20-D5);`WorldPort` 世界生命周期不受注册通道影响(20-D7)。(**★v1.4(22 号)**:配置文件声明地图特性删除——原「文件装载之外的第二输入通道」「与文件式共用命名空间」「注册式(地图)」口径废止,文件式装载移入「历史术语」表。) |
+| **ResetStrategy(还原策略)** | 副本处置方式:REUSE_DIRTY(会话存活期内打完复用——归零释放保留目录,切换换图亦保留)或 TEMPLATE_RESTORE(归零即删副本、下次 acquire 从模板重新复制)。(**★v1.5**:两种策略的效力均以**会话存活**为前提——复用窗口 = 会话生命周期,会话解散后该会话名下全部副本**无论策略一律销毁**(★v1.5-D1,23 号);两者词汇与边界清单("打完不重建靠 CleanupComponent 还原""切走删副本重复制")原样。) |
 
 ## 对外
 
 | 术语 | 定义 |
 |---|---|
-| **MiniGameApi** | 本框架对第三方插件的冻结公共面(查会话、控切换、注册模式、查战绩),经 ServicesManager 暴露。(**★v1.3**:「查战绩」面随 R1 悬置——归宿主线消费;框架冻结面 7.1 落地时不含 DB 依赖项,回填裁决见 21 §6-Q1。) |
+| **MiniGameApi** | 本框架对第三方插件的冻结公共面(查会话、控切换、注册模式、查战绩),经 ServicesManager 暴露。(**★v1.3**:「查战绩」面随 R1 悬置——归宿主线消费;框架冻结面 7.1 落地时不含 DB 依赖项,回填裁决见 21 §6-Q1。)(**★v1.6(24 号)**:显式注册收敛——冻结面 19 方法(API_VERSION = 5);模式注册 = `registerMode(Plugin, MatchModeProvider)` 显式法 + `unregisterMode`(只摘自己的 id,摘除触发回退编排);会话组件贡献 = `registerSessionComponents`/`unregisterSessionComponents` 显式法;原 ServicesManager 提供方通道(`MatchModeProvider`/`SessionComponentProvider` 注册)退场——MiniGameApi 自身仍经 ServicesManager 暴露,但第三方注册不再走它。) |
 
 ## 历史术语(已废弃,勿在新代码使用)
 
@@ -147,3 +147,6 @@
 | `engine/port/PersistencePort` + `bridge/persistence/PersistencePortImpl` + L5 `data/**`(Database/AsyncExecutor/StatsFlusher/repo/、model/) + build 的 HikariCP/mysql 依赖与 shade + config `database:` 块 + `engine.shutdown-flush-budget-seconds` + `sql/` 资源 | **持久化整体出框架**(21-D1/R1):宿主自建,经自己的组件/服务直连自己的 DB 栈;`StatsComponent` 采集与 `StatsDelta` 出口留框架;★10~★12 命题随宿主线执行;设计资产以 10-数据库存档保全(§10.5 例外留框架) | v1.3(D1) |
 | `component/display/**`(DisplayComponent) | **表现层出框架**(21-D2/R2):框架基线移除 `component/display/` 与 `render/` 与 config `display:` 块;组件与渲染器迁宿主(`com.shdf.*` 对应包),数据驱动设计与挂法见 Shdf具体玩法设计案/10-表现层组件.md;施工子阶段 4.3 撤销;P3 组件计数 L3 实数 21→20 | v1.3(D2) |
 | `DisplayModel`/`DisplayLine`/`Countdown`/`Progress`(中立表现模型,原住 `com.hydrokarbs.component.display`) | 随 D2 迁 Shdf具体玩法设计案/10-表现层组件.md(标注「自框架 06 §6.2 v1.3 迁入」,原文完整);框架基线无表现层类型 | v1.3(D2) |
+| 文件式地图装载(`maps/*.yml` 启动扫描:ConfigRepository.loadMaps / YamlCodec.readMap / MapDefinition.from / MapRegistry.replace 与文件半边、无参构造)+「文件 + 注册双通道」「注册式(地图)」限定口径 | **地图注册通道唯一**(★v1.4/22 号):地图只经 `MiniGameApi#registerMap/unregisterMap` 显式注册/摘除,`MapRegistry` 目录顺序 = 注册序;模板目录约定 `maps/templates/<mapId>/`、注册期校验(响亮抛)、正用摘除被拒(20-D4)不变 | v1.4(22 号) |
+| 两参 `createSession(String, String)` 重载(公共 API 建会话) | `createSession(SessionRecipe)`——公共 API 建会话唯一形态(API_VERSION 3→4,★19/★44 冻结测试随裁决合法更新) | v1.4(22 号) |
+| `SessionComponentProvider` SPI(全局默认会话组件贡献,经 ServicesManager 注册、ServiceRegisterEvent 收录、坏 provider SEVERE 拒收录会话照常)+ 模式的 ServicesManager 提供方通道(`register(MatchModeProvider.class, …)` + 事件动态收录/摘除、「先启补收录」)+ `listener/ProviderServiceListener` | **显式注册收敛(★v1.6/24 号)**:模式 = `MiniGameApi#registerMode(Plugin, MatchModeProvider)`(载荷,响亮闸)+ `unregisterMode`(只摘自己的 id + 回退编排:fallback-mode force 切换 / FALLBACK_DISSOLVE);贡献 = `registerSessionComponents(Plugin, specs)`(干跑校验响亮上抛、幂等重收录)+ `unregisterSessionComponents`;第三方必须 `depend` 框架、`load(MiniGameApi)` 后显式登记;disable 兜底四族(能力/模式/地图/贡献,ProviderUnloadListener) | v1.6(24 号) |

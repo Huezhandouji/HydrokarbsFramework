@@ -68,8 +68,10 @@ class EmptyArenaComponentTest {
                     return List.of(probeMode);
                 }
             };
-            MapRegistry maps = new MapRegistry();
-            maps.replace(List.of(OfflineAssembly.map()));
+            // 自理临时模板根 + 注册式地图(★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
+            java.nio.file.Path templatesRoot = com.hydrokarbs.testkit.MapTestKit.newTemplatesRoot();
+            MapRegistry maps = new MapRegistry(templatesRoot);
+            com.hydrokarbs.testkit.MapTestKit.registered(maps, templatesRoot, OfflineAssembly.map());
             service = new SessionServiceImpl.Builder()
                     .modes(modes)
                     .capabilities(new CapabilityRegistry())

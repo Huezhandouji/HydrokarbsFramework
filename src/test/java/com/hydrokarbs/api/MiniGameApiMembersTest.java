@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -14,6 +15,7 @@ import java.util.UUID;
 import org.bukkit.plugin.Plugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.engine.port.JoinDecision;
 import com.hydrokarbs.engine.session.JoinResult;
@@ -22,6 +24,7 @@ import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionMember;
 import com.hydrokarbs.testkit.AdmissionGateComponent;
 import com.hydrokarbs.testkit.FakeWorldPort;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineApi;
 import com.hydrokarbs.testkit.TestPlugins;
 
@@ -41,18 +44,27 @@ class MiniGameApiMembersTest {
     private static final String MODE_ID = "probe_mode";
     private static final String GATED_MODE_ID = "gated_mode";
 
+    @TempDir
+    Path tempDir;
+
     private OfflineApi harness;
     private Plugin provider;
 
     @BeforeEach
     void setUp() {
         // gated_mode:入场裁决恒拒(Rejected 兜底链路的实例侧门)
-        harness = new OfflineApi(null, FakeWorldPort.immediate(),
+        harness = new OfflineApi(templatesRoot(), FakeWorldPort.immediate(),
                 OfflineApi.mode(MODE_ID, OfflineApi.TAG),
                 gatedMode(GATED_MODE_ID));
-        // 文件式地图(标签 common):让首切实例就位——入场裁决在实例路径上才有门
-        harness.maps.replace(List.of(OfflineApi.map("file_map", OfflineApi.TAG)));
+        // 注册式地图(标签 common):让首切实例就位——入场裁决在实例路径上才有门
+        // (★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
+        MapTestKit.registered(harness.maps, templatesRoot(), "file_map", OfflineApi.TAG);
         provider = TestPlugins.named("members-plugin");
+    }
+
+    /** 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定)。 */
+    private Path templatesRoot() {
+        return tempDir.resolve("maps").resolve("templates");
     }
 
     // ── ★42 joinSession/leaveSession 端到端 ──────────────────────────
