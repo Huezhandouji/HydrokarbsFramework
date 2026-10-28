@@ -36,18 +36,21 @@ import com.hydrokarbs.map.SpawnPoint;
 
 /**
  * 第三方消费样例插件(7.5 施工文档步骤 10;13-扩展步骤 §13.4/§13.10/§13.11 的
- * 可运行落地版):真实消费 {@link MiniGameApi} v5 面——成员操作编排(D2)、
- * 会话事件订阅(D3)、能力标签(D4)、SessionRecipe 单次建会话(D14 通道二)、
+ * 可运行落地版):真实消费 {@link MiniGameApi} v6 面——成员操作编排(D2)、
+ * 会话事件订阅(D3)、SessionRecipe 单次建会话(D14 通道二)、
  * 注册式地图(★v1.2;解包 → 构造声明 → registerMap,14.39)、模式与会话组件
- * 显式注册(★v1.5;原 ServicesManager 提供方通道退场),并演示
+ * 显式注册(★v1.6;原 ServicesManager 提供方通道退场),并演示
  * 版本协商拒载(14.36)、句柄只在实例字段(14.38)与禁 shade 构建断言(14.35,
  * 见 build.gradle.kts 的 {@code verifyNoFrameworkClasses} 任务)。
+ * ★v1.7(25 号修正案):原 D4 能力标签演示(/their capability 命令)随标签机制
+ * 全链退场删除——外部能力 = 会话组件桥接(本插件的贡献组件
+ * {@link TheirSessionComponent} 即桥接形态)。
  *
- * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表;★v1.5 显式注册口径):
+ * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表;★v1.6 显式注册口径):
  * 首行查版本 → registerMode(工厂;响亮抛 = 拒载信号)→ registerSessionComponents
  * (贡献)→ 解包模板 → 构造 MapDefinition → registerMap → 订阅事件 → 注册命令。
  *
- * <p><b>文本纪律(14.10)</b>:命令参数(会话 id/模式 id/标签)是玩家可控串,
+ * <p><b>文本纪律(14.10)</b>:命令参数(会话 id/模式 id)是玩家可控串,
  * 一律 {@code Component.text(...)} 固定样式拼接——<b>不过 MiniMessage</b>,零注入面。
  *
  * <p><b>卸载善后(14.38/§13.11 步骤 6)</b>:订阅句柄 onDisable 显式 close;
@@ -57,8 +60,8 @@ import com.hydrokarbs.map.SpawnPoint;
  */
 public final class TheirPlugin extends JavaPlugin {
 
-    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服;★v1.5 起 = 5)。 */
-    static final int REQUIRED_API_VERSION = 5;
+    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服;★v1.7 起 = 6)。 */
+    static final int REQUIRED_API_VERSION = 6;
     /** 注册式地图 id(模板随本 jar 分发;14.39 顺序的演示载体)。 */
     static final String MAP_ID = "their_arena";
     /** 模板资源根(jar 内路径;解包目标 = 框架数据目录 maps/templates/<id>/)。 */
@@ -66,7 +69,7 @@ public final class TheirPlugin extends JavaPlugin {
     /** 根命令(自有命令树;plugin.yml 不写 commands: 段——Brigadier 注册)。 */
     private static final String ROOT_COMMAND = "their";
     /**
-     * D14 通道一:全局默认贡献(★v1.5 显式注册;所有新会话合并)。Spec 常量
+     * D14 通道一:全局默认贡献(★v1.6 显式注册;所有新会话合并)。Spec 常量
      * 共享跨会话互不串改由 Snapshot 结构保证(收录表 freeze 副作用注)。
      * 包私有:守卫用例(TheirPluginGuardsTest)直读断言。
      */
@@ -87,7 +90,7 @@ public final class TheirPlugin extends JavaPlugin {
             setEnabled(false);
             return;
         }
-        // ★v1.5 显式注册(注册工厂/声明,不是注册成品;§13.4 步骤 2;D14 通道一):
+        // ★v1.6 显式注册(注册工厂/声明,不是注册成品;§13.4 步骤 2;D14 通道一):
         // 注册闸响亮抛(build/依赖校验/重复 id)——异常上抛 = onEnable 失败 = 拒载信号
         api.registerMode(this, new TheirModeFactory());
         api.registerSessionComponents(this, SESSION_COMPONENT_SPECS);
@@ -95,7 +98,7 @@ public final class TheirPlugin extends JavaPlugin {
         subscribeSessionEvents();           // D3:句柄存实例字段
         registerCommands();                 // 自有 Brigadier 命令树
         getLogger().info("TheirPlugin enabled: API_VERSION=" + api.API_VERSION
-                + "(消费样例:成员/事件/能力/recipe/注册式地图/显式注册)");
+                + "(消费样例:成员/事件/recipe/注册式地图/显式注册)");
     }
 
     @Override
@@ -177,7 +180,7 @@ public final class TheirPlugin extends JavaPlugin {
         }
     }
 
-    // ── 自有 Brigadier 命令树(/their;演示 D2/D3/D4/D14 面) ──────────────
+    // ── 自有 Brigadier 命令树(/their;演示 D2/D3/D14 面) ──────────────
 
     private void registerCommands() {
         getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
@@ -189,10 +192,6 @@ public final class TheirPlugin extends JavaPlugin {
                                             StringArgumentType.getString(ctx, "sessionId")))))
                     .then(Commands.literal("leave")
                             .executes(this::leaveCommand))
-                    .then(Commands.literal("capability")
-                            .then(Commands.argument("tag", StringArgumentType.word())
-                                    .executes(ctx -> capabilityCommand(ctx,
-                                            StringArgumentType.getString(ctx, "tag")))))
                     .then(Commands.literal("recipe")
                             .then(Commands.argument("modeId", StringArgumentType.word())
                                     .executes(ctx -> recipeCommand(ctx,
@@ -204,7 +203,7 @@ public final class TheirPlugin extends JavaPlugin {
                     .then(Commands.literal("events")
                             .executes(this::toggleEventsCommand));
             event.registrar().register(root.build(),
-                    "TheirPlugin 消费样例:join/leave/capability/recipe/events", List.of("theirp"));
+                    "TheirPlugin 消费样例:join/leave/recipe/events", List.of("theirp"));
         });
     }
 
@@ -226,14 +225,6 @@ public final class TheirPlugin extends JavaPlugin {
         Player player = (Player) ctx.getSource().getSender();
         api.leaveSession(player.getUniqueId(), LeaveReason.KICK);
         player.sendMessage(Component.text("已移出当前会话(若在)", NamedTextColor.GREEN));
-        return 1;
-    }
-
-    /** D4:注册能力标签(提供方 = 本插件;disable 自动摘除由框架兜底)。 */
-    private int capabilityCommand(CommandContext<CommandSourceStack> ctx, String tag) {
-        Player player = (Player) ctx.getSource().getSender();
-        api.registerCapability(this, tag);
-        player.sendMessage(Component.text("能力标签已注册: " + tag, NamedTextColor.GREEN));
         return 1;
     }
 

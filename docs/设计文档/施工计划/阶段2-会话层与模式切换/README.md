@@ -4,6 +4,7 @@
 > 对应路线图:`16-路线图与验收.md`(v2 根目录)§16.1 的 **P1**(会话层,提前到桥接之前)。
 > 本章只做施工序列化;设计内容以 `设计案v2/` 根设计文档(v1.0,自 v4.1 重构)为唯一权威,引用样式「§3.2」= 根目录 `03-会话与模式切换.md` 第 3.2 节。
 > 版本基线(全文一致):Java 21 / PaperMC 1.21.11 / Gradle Kotlin DSL / `io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT`;`runTaskTimer` 初始 delay=1L;DB 与文件 IO 走虚拟线程;命令走 Brigadier(`LifecycleEvents.COMMANDS`);调度统一走全局调度(`GlobalRegionScheduler` 在普通 Paper 等价,未来 Folia 迁移成本 0,§00-A5)。角色系统接入是 SHDF 宿主扩展,随玩法线阶段3(Shdf 侧)引入,框架基线不含宿主插件坐标,见 Shdf具体玩法设计案/。
+> ★v1.7 注(2026-10-27;修正案 25 号,能力标签机制全链退场):本文 2.3 行的「`CapabilityRegistry` 字符串标签机制件」交付项与下游接口段的 A2 能力校验/标签注册表述读作**历史口径**——机制件已删(25 号;2.3/2.6 两档头部有专项注);外部能力 = 会话组件桥接(`requires/requiresOptional`,★21/★60)。**原文为施工序列存档,不改写,按本注读**。
 
 ## 1. 阶段目标(含出口闸门)
 

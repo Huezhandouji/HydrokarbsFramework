@@ -20,7 +20,6 @@ import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.EngineServices;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionPolicy;
@@ -34,13 +33,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * api 集成测试基座(7.5;test 源集):真会话服务(假世界口/直通主线程/镜像挂接)+
- * 真模式注册表 + 真地图目录(带模板根)+ 真能力注册表 + ⑨ 汇聚总线 + D14 贡献收录表
+ * 真模式注册表 + 真地图目录(带模板根)+ ⑨ 汇聚总线 + D14 贡献收录表
  * + 真 {@link MiniGameApiImpl}——★42/★43/★51~★53/★54 的离线端到端底座
  * (镜像 {@code SwitchHarness} 2.3 装配先例;离线零 Bukkit 静态调用)。
  *
  * <p>组装口径:主线程执行器 = 直跑(切换完成点内联,与 SwitchHarness 同款);
  * 镜像挂接 = {@code sessionEventMirror(globalEvents::publish)}(生产行为的离线复刻,
  * 7.5 决策 12);会话创建后直调节拍器两拍推进首切实例(§16.4 三律①)。
+ * ★v1.7 起不再装配能力标签机制件(25 号修正案)。
  */
 public final class OfflineApi {
 
@@ -49,7 +49,6 @@ public final class OfflineApi {
 
     public final MatchModeRegistry modes;
     public final MapRegistry maps;
-    public final CapabilityRegistry capabilities;
     public final SessionEventBus globalEvents;
     public final SessionComponentContributionRegistry contributions;
     public final SessionServiceImpl service;
@@ -86,12 +85,10 @@ public final class OfflineApi {
             modes.register(fixedProvider(mode));
         }
         this.maps = new MapRegistry(templatesRoot);
-        this.capabilities = new CapabilityRegistry();
         this.globalEvents = new SessionEventBus();
         this.contributions = new SessionComponentContributionRegistry();
         this.service = new SessionServiceImpl.Builder()
                 .modes(modes)
-                .capabilities(capabilities)
                 .worlds(worlds)
                 .maps(maps)
                 .configSource(id -> OfflineAssembly.cfg())
@@ -104,7 +101,7 @@ public final class OfflineApi {
                 .build();
         this.ticker = new EngineTicker(null, service);         // Plugin 位传 null:不 start,直调驱动
         // fallbackModeId 传空读口:与上方 service.fallbackModeId("") 同口径(空 = 摘除回退跳级直接解散)
-        this.api = new MiniGameApiImpl(service, modes, maps, capabilities, globalEvents,
+        this.api = new MiniGameApiImpl(service, modes, maps, globalEvents,
                 contributions, Runnable::run, () -> "");
     }
 
@@ -141,7 +138,7 @@ public final class OfflineApi {
     public static MatchMode mode(String id, Set<String> mapTags) {
         return new MatchMode.Builder(id)
                 .mapTags(mapTags)
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100,
+                .meta(new MatchModeMeta(false, 0, 100,
                         MatchModeMeta.DefaultTransition.STAY))
                 .build();
     }

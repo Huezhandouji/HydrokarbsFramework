@@ -1,7 +1,6 @@
 package com.hydrokarbs.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -25,8 +24,9 @@ import com.hydrokarbs.testkit.SessionProbeComponent;
 /**
  * ★28 会话级生命周期与回收(§16.2;17-D2/D9;02 §2.5.1 派发规则):
  * 声明序 {@code awake}/{@code start};dissolve 时<b>逆序</b> {@code stop};
- * 登记资源(订阅/延时任务)全回收;{@code stop} 幂等(重复解散不重放钩子);
- * ★32 会话侧:能力标签随 dissolve 摘除(A2 并集不再含它)。
+ * 登记资源(订阅/延时任务)全回收;{@code stop} 幂等(重复解散不重放钩子)。
+ * ★v1.7:原 ★32 会话侧标签命题(capabilityTagsVanishAfterDissolve)随能力标签
+ * 机制全链退场删除(25 号修正案)。
  */
 class SessionComponentLifecycleTest {
 
@@ -218,39 +218,5 @@ class SessionComponentLifecycleTest {
         assertEquals(1, log.stream().filter(line -> line.endsWith(":stop")).count(),
                 "stop 只派发一次(重复解散被 DISSOLVING 终态护栏吸收)");
         assertTrue(harness.service.session(session.id()).isEmpty(), "会话已从注册表摘除");
-    }
-
-    /** ★32 会话侧:会话组件标签随 dissolve 摘除——重建的无组件会话切同模式被拒。 */
-    @Test
-    void capabilityTagsVanishAfterDissolve() throws Exception {
-        List<String> log = new ArrayList<>();
-        SwitchHarness harness = new SwitchHarness("fb",
-                SwitchHarness.mode("fb", 0, 100),
-                SwitchHarness.mode("probe-mode", 0, 100),
-                SwitchHarness.mode("vip", 0, 100, java.util.Set.of("session-cap"),
-                        com.hydrokarbs.engine.mode.MatchModeMeta.DefaultTransition.FALLBACK));
-
-        Session session = harness.createSession("s1", "probe-mode",
-                List.of(SessionProbeComponent.tagged(log, "session-cap")));
-        assertTrue(session.sessionComponentCapabilities().contains("session-cap"),
-                "装配时会话组件标签进本会话标签集");
-        var okFuture = harness.service.switchMode(session.id(),
-                new com.hydrokarbs.engine.session.MatchModeSelection("vip", java.util.Optional.empty(), true),
-                com.hydrokarbs.engine.session.Handoff.empty());
-        harness.ticker.tickAll();
-        harness.ticker.tickAll();
-        var ok = okFuture.get(2, java.util.concurrent.TimeUnit.SECONDS);
-        assertTrue(ok instanceof com.hydrokarbs.engine.session.SwitchResult.Succeeded,
-                "标签在本会话可用集内(并集),声明该标签的模式可开局");
-        harness.service.dissolve(session.id(), DissolveReason.ADMIN);
-
-        Session reborn = harness.createSession("s2", "probe-mode");     // 无会话组件
-        var rejected = harness.service.switchMode(reborn.id(),
-                com.hydrokarbs.engine.session.MatchModeSelection.of("vip"),
-                com.hydrokarbs.engine.session.Handoff.empty()).get(2, java.util.concurrent.TimeUnit.SECONDS);
-        assertTrue(rejected instanceof com.hydrokarbs.engine.session.SwitchResult.Rejected bounced
-                        && bounced.detail().contains("session-cap"),
-                "dissolve 后标签摘除:新会话的可用集不再含它,开局被拒且 detail 点名: " + rejected);
-        assertFalse(reborn.sessionComponentCapabilities().contains("session-cap"));
     }
 }

@@ -1,6 +1,6 @@
 # AGENTS.md — 本项目 AI 代理通用提示词
 
-> HydroKarbs MiniGame Framework · v1.6(现行;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁;v1.4 于 2026-10-27 API 面收敛与地图注册单通道;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构)
+> HydroKarbs MiniGame Framework · v1.7(现行;v1.6 于 2026-10-27 API 面显式注册模式与会话组件;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁;v1.4 于 2026-10-27 API 面收敛与地图注册单通道;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构)
 > 本文件是**工具性提示词,非设计章节**:为任何接入本项目的代理 AI 提供角色设定与必备知识地图。只写"你是什么、必须知道什么、按什么纪律做事",不含具体工作内容——任务由对话、[施工计划/](施工计划/README.md) 与 [Shdf具体玩法设计案/施工计划/](Shdf具体玩法设计案/施工计划/README.md) 给出。与 [README.md](README.md) 冲突时,以 README 为准。
 
 ---
@@ -26,10 +26,10 @@
 
 | 线 | 内容 | 所在 |
 |---|---|---|
-| 框架线 | 框架设计(00~16)、修正案(17~24)、ADR、施工计划(阶段1/2/4/5 框架半段/7/8) | 本目录根 + `施工计划/` |
+| 框架线 | 框架设计(00~16)、修正案(17~25)、ADR、施工计划(阶段1/2/4/5 框架半段/7/8) | 本目录根 + `施工计划/` |
 | 玩法线(SHDF) | 大厅(04)、四模式(05)、角色桥接/角色组件(08/09)、玩法施工(2.5、阶段3、5.1/5.2、阶段6、7.3) | `Shdf具体玩法设计案/` |
 
-两线共用同一套 ★ 验收编号(★1~★59,只增不改、不拆分不重排),归属口径见 `16-路线图与验收.md` §16.2 与 `施工计划/README.md` §4。
+两线共用同一套 ★ 验收编号(★1~★60,只增不改、不拆分不重排),归属口径见 `16-路线图与验收.md` §16.2 与 `施工计划/README.md` §4。
 
 ## 2. 必备知识——文档地图(读什么、按什么顺序)
 
@@ -42,14 +42,14 @@
 | 写一个新模式 | 02 → [13-扩展步骤](13-扩展步骤.md);具体玩法参照 `Shdf具体玩法设计案/05` |
 | 消费框架 API | [07-公共API](07-公共API.md)(§7.5 跨插件消费)→ 13.4/13.10/13.11 |
 | 玩法线工作 | `Shdf具体玩法设计案/README.md`(含 v1.1/1.2 对齐注)→ `CONTEXT-玩法术语.md` → 对应篇/施工子阶段 |
-| 理解"为什么这样设计" | `docs/adr/0001~0012` |
+| 理解"为什么这样设计" | `docs/adr/0001~0013` |
 | 施工排期/接手某子阶段 | `施工计划/README.md` → 阶段 README → 子阶段文档(七段模板,末尾 DoD 是闸门) |
 
 ## 3. 必备知识——版本与文档惯例
 
-- **版本链**:v3 → v3.1 → v3.2 → v4 → v4.1 → v1.0(剥离玩法)→ v1.1(框架独立插件化 + API 面扩充)→ v1.2(地图注册通道)→ v1.3(框架基础设施瘦身与配置中立化,21 号)→ v1.4(API 面收敛与地图注册单通道,22 号)→ v1.5(REUSE_DIRTY 副本随会话解散销毁,23 号)→ **v1.6(现行,API 面显式注册模式与会话组件——四法显式注册,ServicesManager 提供方通道退场,24 号)**。每篇头部横幅标注沿革,`文档版本:` 行记录该篇最后实质修订。
-- **修正案(17~23 为历史存档;24 为现行)是变更指示,非设计章节**:正文设计以 00~16 为准;修该历史语义时**存档正文不改写**,只加头部注。改冻结语义的正确姿势 = 新修正案(D 决策 + 契约骨架 + 逐文档修改指示 + 验收追加 + ADR),验收与陷阱编号**只增不改**。
-- **SHDF 玩法线对齐注**(必读):玩法线正文写定于 v1.0,`Shdf具体玩法设计案/README.md` 头部的「v1.1/v1.2 对齐注」给出重读规则——正文旧包根 `com.shdf.match.*` 读作框架 `com.hydrokarbs.*` / 宿主 `com.shdf.*`;宿主自有主类(旧名 `SHDFMatchPlugin` 废);形态 B 下 `depend: [HydroKarbs]`、禁 shade;消费方 `onEnable` 首行查 `API_VERSION`(v1.1=2,v1.2=3,v1.4 = 4,★v1.6 起 = 5);验收计数现为 59 条。
+- **版本链**:v3 → v3.1 → v3.2 → v4 → v4.1 → v1.0(剥离玩法)→ v1.1(框架独立插件化 + API 面扩充)→ v1.2(地图注册通道)→ v1.3(框架基础设施瘦身与配置中立化,21 号)→ v1.4(API 面收敛与地图注册单通道,22 号)→ v1.5(REUSE_DIRTY 副本随会话解散销毁,23 号)→ v1.6(API 面显式注册模式与会话组件,24 号)→ **v1.7(现行,能力标签机制退场与会话组件桥接——25 号)**。每篇头部横幅标注沿革,`文档版本:` 行记录该篇最后实质修订。
+- **修正案(17~24 为历史存档;25 为现行)是变更指示,非设计章节**:正文设计以 00~16 为准;修该历史语义时**存档正文不改写**,只加头部注。改冻结语义的正确姿势 = 新修正案(D 决策 + 契约骨架 + 逐文档修改指示 + 验收追加 + ADR),验收与陷阱编号**只增不改**。
+- **SHDF 玩法线对齐注**(必读):玩法线正文写定于 v1.0,`Shdf具体玩法设计案/README.md` 头部的「v1.1/v1.2 对齐注」给出重读规则——正文旧包根 `com.shdf.match.*` 读作框架 `com.hydrokarbs.*` / 宿主 `com.shdf.*`;宿主自有主类(旧名 `SHDFMatchPlugin` 废);形态 B 下 `depend: [HydroKarbs]`、禁 shade;消费方 `onEnable` 首行查 `API_VERSION`(v1.1=2,v1.2=3,v1.4 = 4,★v1.6 = 5,★v1.7 起 = 6);验收计数现为 60 条。
 - **历史存档中的旧名(旧包根、SHDFMatch、joinPolicy、HandoffKeys 等)有意保留**,不要"顺手修正";[CONTEXT.md](CONTEXT.md)「历史术语」表是废止名单,新代码禁用。
 
 ## 4. 必备知识——架构铁律(硬边界速记;详见 README「硬边界」与 §16.2)
@@ -63,14 +63,14 @@
 7. **跨模式数据只走 `Handoff`**(类型化键值袋,命名空间 = 写入方自己的 id,框架不写任何键)或寄居会话级组件;实例状态随 `close()` 全灭。
 8. **结束判定是组件的主动声明**:`EndCondition`(纯函数)→ `GateVerdict`(`MatchOutcome` 结局留内容层 + 可选 `TransitionIntent` 去向)→ `svc().self().end(new EndResult(intent))`;引擎只执行去向,不认识任何结局词汇;判定栈内禁止直接发起切换(14.17)。
 9. **世界只有 `WorldPort` 一个口**:实例化/引用计数/释放/还原策略全在框架;模式与组件无感(§3.7);副本随会话解散销毁(★v1.5,23 号——复用窗口 = 会话生命周期,`discardSession` 三类覆盖)。
-10. **API 面白名单冻结**:`MiniGameApi`(v5,API_VERSION=5;19 方法 = 查询 3 + 控制 1(含建会话唯一形态 `createSession(SessionRecipe)`)+ 成员 2 + 订阅 1 + 能力 2 + 地图 2 + **模式显式注册 2 + 会话组件显式注册 2** + 目录 3;★v1.4:两参 `createSession(String, String)` 重载删除、★v1.6:`SessionComponentProvider` SPI 接口删除为经 22/24 号修正案裁决的破坏性例外——模式/会话组件经四法显式注册,ServicesManager 提供方通道退场,第三方 `depend` 框架、`load(MiniGameApi)` 后显式登记)只增不改;`ApiSurfaceTest` 双断言(★44);`SessionService`/`EngineTicker`/`WorldPort`/`ServiceRegistry` 族/`bridge/**` 永不导出(★v1.3:原反面词 `PersistencePort`/`data/**` 为历史口径——持久化已出框架);**服务不经 MiniGameApi**;消费方禁 shade(14.35)。
+10. **API 面白名单冻结**:`MiniGameApi`(v6,API_VERSION=6;17 方法 = 查询 3 + 控制 1(含建会话唯一形态 `createSession(SessionRecipe)`)+ 成员 2 + 订阅 1 + 地图 2 + **模式显式注册 2 + 会话组件显式注册 2** + 目录 3;★v1.4:两参 `createSession(String, String)` 重载删除、★v1.6:`SessionComponentProvider` SPI 接口删除、★v1.7:能力标签两法 `registerCapability`/`capabilities()` 删除为经 22/24/25 号修正案裁决的破坏性例外——模式/会话组件经四法显式注册,ServicesManager 提供方通道退场,外部能力 = 会话组件桥接(25 号:标签机制全链退场,消费方组件 `requires`/`requiresOptional` 类型化声明),第三方 `depend` 框架、`load(MiniGameApi)` 后显式登记)只增不改;`ApiSurfaceTest` 双断言(★44);`SessionService`/`EngineTicker`/`WorldPort`/`ServiceRegistry` 族/`bridge/**` 永不导出(★v1.3:原反面词 `PersistencePort`/`data/**` 为历史口径——持久化已出框架);**服务不经 MiniGameApi**;消费方禁 shade(14.35)。
 11. **双形态交付**:形态 A(单 jar 彩排,G1=7.5)→ 形态 B(双 jar,G2=8.1,触发条件 = 首个真实跨 jar 消费者,A13);形态 A 下宿主只用白名单 + L0 装配/监听/命令三处豁免。
 12. **冻结测试即架构**:★ 验收测试建立后永久生效,任何阶段不得为通过功能而放宽断言;修测试须单独说明理由(施工计划 §3 纪律 4)。
 
 ## 5. 必备知识——术语与命名纪律
 
 - 术语以 [CONTEXT.md](CONTEXT.md) 为准,禁用其「历史术语」表的旧名(裸 `Mode` 接口、`MatchContext`、`HandoffKeys`、`enum Capability`、`SessionPolicy` 空场、`com.shdf.match` 包根等)。
-- **包根(D13)**:框架 = `com.hydrokarbs.*`(主类 `com.hydrokarbs.HydroKarbsPlugin`,装配 `HydroKarbsAssembly`);宿主 = 独立顶级包 `com.shdf.*`(旧根不复用)。字符串域(Handoff 键/DB schema/配置键/能力标签词汇)不受包名影响。
+- **包根(D13)**:框架 = `com.hydrokarbs.*`(主类 `com.hydrokarbs.HydroKarbsPlugin`,装配 `HydroKarbsAssembly`);宿主 = 独立顶级包 `com.shdf.*`(旧根不复用)。字符串域(Handoff 键/DB schema/配置键)不受包名影响。
 - 模式家族类型一律带 `Match` 前缀(`MatchMode`/`MatchModeInstance`/`MatchModeComponent`/`MatchModeProvider`…),避免与 Bukkit `GameMode` 撞名。
 - 事件词汇跟发布者走(`PhaseChanged` 住 component/phase、角色事件住 component/role);交接键随主人(常量定义在生产者,如 `VoteComponent.HANDOFF_RESULT`)。
 

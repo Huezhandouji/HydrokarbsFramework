@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 import com.hydrokarbs.engine.port.ConfigView;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★39 ServiceEnv 语义(1.6「测试与验收」表;18 号修正案 §7)。
@@ -43,7 +42,7 @@ class ServiceEnvTest {
     /** dep 缺席(未声明、未装配)→ IllegalStateException,消息点名类型(人话)。 */
     @Test
     void depAbsenceFailsLoudlyWithTypeName() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         AtomicReference<Throwable> caught = new AtomicReference<>();
         registry.install(ServiceSpec.of("probe", Probe.class, env -> {
             try {
@@ -66,7 +65,7 @@ class ServiceEnvTest {
     /** depOpt 缺席 → empty(可选依赖语义:缺席不抛)。 */
     @Test
     void depOptAbsenceYieldsEmpty() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         AtomicReference<Optional<Absent>> seen = new AtomicReference<>();
         registry.install(ServiceSpec.of("probe", Probe.class, env -> {
             seen.set(env.depOpt(Absent.class));
@@ -79,7 +78,7 @@ class ServiceEnvTest {
     /** dep 声明且在场 → 返回已就绪实例(拓扑序保证;dep 的正面语义)。 */
     @Test
     void depDeclaredReturnsReadyInstance() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         registry.install(ServiceSpec.of("provider", Provider.class, env -> new Provider()).build());
         AtomicReference<Provider> seen = new AtomicReference<>();
         registry.install(ServiceSpec.of("probe", Probe.class, env -> {
@@ -103,7 +102,7 @@ class ServiceEnvTest {
                 return backing.containsKey(path) ? (T) backing.get(path) : fallback;
             }
         };
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry(), null, view);
+        ServiceRegistry registry = new ServiceRegistry(null, view);
         AtomicReference<ConfigView> seen = new AtomicReference<>();
         registry.install(ServiceSpec.of("probe", Probe.class, env -> {
             seen.set(env.cfg());

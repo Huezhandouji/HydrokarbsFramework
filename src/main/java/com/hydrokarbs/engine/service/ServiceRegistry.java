@@ -13,17 +13,20 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.hydrokarbs.engine.port.ConfigView;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * 进程级服务的两阶段装配容器(18 号修正案 D2/§3;施工计划 1.6)。
  *
  * <p><b>两阶段契约</b>:第一阶段 {@link #install} 只声明(查重 id/类型,响亮点名先到者);
- * 第二阶段 {@link #seal()} 做「依赖校验 → 拓扑排序 → 按序创建 → 启动 → 注册能力标签」,
+ * 第二阶段 {@link #seal()} 做「依赖校验 → 拓扑排序 → 按序创建 → 启动」,
  * 任一工厂/start 抛出 → <b>回滚已启动服务(逆序 stop)再抛,不留半启动态</b>
  * (镜像切换执行「绝不停在中间态」)。消费面五方法封顶
  * ({@code install/seal/get/require/shutdown};{@link #ids} 为只读诊断口)——
  * 事件转发、权限查询等扩需求一律新独立机制,不往注册表塞方法(14.32)。
+ *
+ * <p>★v1.7(25 号修正案):原 seal 尾部的能力标签注册与 shutdown 摘除随能力标签
+ * 机制全链退场删除(构造器的能力注册表参数一并撤销)——
+ * 两阶段契约自此不含标签步骤。
  *
  * <p><b>单线程约定(D7):全部方法主线程</b>({@code onEnable} 装配、
  * {@code onDisable} 关停天然满足);内部普通集合,不加锁。
@@ -51,7 +54,6 @@ public final class ServiceRegistry implements AutoCloseable {
     private record Installed(ServiceSpec<?> spec, Object instance) {
     }
 
-    private final CapabilityRegistry capabilities;
     private final org.bukkit.plugin.Plugin plugin;
     private final ConfigView cfg;
 
@@ -67,21 +69,19 @@ public final class ServiceRegistry implements AutoCloseable {
     private final Env env = new Env();
 
     /**
-     * 最小构造(修正案 §3 钉定签名):无平台原语——{@code env.plugin()} 返回 null、
-     * {@code env.cfg()} 全回落缺省;离线测试用本构造即可。
+     * 最小构造(修正案 §3 钉定签名;★v1.7 起不再收能力注册表):无平台原语——
+     * {@code env.plugin()} 返回 null、{@code env.cfg()} 全回落缺省;离线测试用本构造即可。
      */
-    public ServiceRegistry(CapabilityRegistry capabilities) {
-        this(capabilities, null, ConfigView.fallbackView());
+    public ServiceRegistry() {
+        this(null, ConfigView.fallbackView());
     }
 
     /**
      * 装配构造:L0 接线用——注入平台原语与惰性配置面,供 {@link ServiceEnv} 转发。
      * {@code plugin} 可为 null(离线测试);{@code cfg} 为 null 时回落全缺省壳。
      */
-    public ServiceRegistry(CapabilityRegistry capabilities,
-                           org.bukkit.plugin.Plugin plugin,
+    public ServiceRegistry(org.bukkit.plugin.Plugin plugin,
                            ConfigView cfg) {
-        this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
         this.plugin = plugin;
         this.cfg = cfg != null ? cfg : ConfigView.fallbackView();
     }
@@ -121,7 +121,6 @@ public final class ServiceRegistry implements AutoCloseable {
      * ②依赖环 → 点名环上服务;③按拓扑序创建并启动(声明序为同层稳定次序),
      * 创建成功的依赖在其消费者工厂运行前已就绪;④任一工厂/start 抛出 →
      * 回滚已启动服务(逆序 stop)再抛原异常,注册表转终结态。
-     * 全部成功后按声明把 {@code capabilities} 标签注册进能力注册表。
      */
     public void seal() {
         if (stage != Stage.OPEN) {
@@ -152,11 +151,6 @@ public final class ServiceRegistry implements AutoCloseable {
                 }
             }
             started.add(new Installed(spec, instance));
-        }
-        for (ServiceSpec<?> spec : declaredSpecs) {         // 标签:全部成功后注册
-            for (String tag : spec.capabilities()) {
-                capabilities.register(tag);
-            }
         }
         stage = Stage.SEALED;
     }
@@ -207,18 +201,13 @@ public final class ServiceRegistry implements AutoCloseable {
 
     /**
      * 关停:逆序 safeStop(逐个 try/catch,异常记日志不中断)→ 幂等(连调多次,
-     * 每个服务的 stop 恰执行一次)→ 摘除全部能力标签;此后 install 抛(★34/★38)。
+     * 每个服务的 stop 恰执行一次);此后 install 抛(★34/★38)。
      */
     public void shutdown() {
         if (stage == Stage.TERMINATED) {
             return;                          // 幂等:第二、三次调用直接返回
         }
         stopAllStarted();
-        for (ServiceSpec<?> spec : declaredSpecs) {
-            for (String tag : spec.capabilities()) {
-                capabilities.unregister(tag);
-            }
-        }
         stage = Stage.TERMINATED;
     }
 

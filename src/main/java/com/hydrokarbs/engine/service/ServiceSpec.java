@@ -10,7 +10,7 @@ import java.util.function.Function;
  * 进程级服务的声明式描述符(18 号修正案 D3/§3;施工计划 1.6)。
  *
  * <p>由 L0 装配现场构建、交付给唯一的 {@link ServiceRegistry} 消费——
- * 「一个 id、一个主类型、一个工厂、一组依赖声明、一组能力标签」(D4 单类型单服务:
+ * 「一个 id、一个主类型、一个工厂、一组依赖声明」(D4 单类型单服务:
  * 需要两个接口面就做一个门面接口,不做 multi-provide)。
  *
  * <p><b>与组件 {@code Specification} 的两处刻意差异(D3,理由照决策记录):</b>
@@ -24,9 +24,9 @@ import java.util.function.Function;
  * </ol>
  *
  * <p>语义口径:{@code requires} 声明的类型缺席 → seal 抛 {@link ServiceDependencyException}
- * 点名双方;{@code requiresOptional} 缺席 → 不报错,运行期 {@code depOpt} 自查;
- * {@code capabilities} 在 seal 成功后注册、shutdown 时摘除(能力标签口径见 08-角色桥接 §8.8
- * 扩注:注册者含「服务(seal 期)」,字符串标签与校验机制不变)。
+ * 点名双方;{@code requiresOptional} 缺席 → 不报错,运行期 {@code depOpt} 自查。
+ * ★v1.7(25 号修正案):原 {@code capabilities} 标签声明随能力标签机制全链退场删除
+ * (08-角色桥接 §8.8 扩注的「服务(seal 期)注册者」通道随之消失)。</p>
  */
 public final class ServiceSpec<S> {
 
@@ -35,7 +35,6 @@ public final class ServiceSpec<S> {
     private final Function<ServiceEnv, S> factory;
     private final List<Class<?>> required;
     private final List<Class<?>> optional;
-    private final Set<String> capabilities;
 
     private ServiceSpec(Builder<S> builder) {
         this.id = builder.id;
@@ -43,11 +42,10 @@ public final class ServiceSpec<S> {
         this.factory = builder.factory;
         this.required = List.copyOf(builder.required);
         this.optional = List.copyOf(builder.optional);
-        this.capabilities = Set.copyOf(builder.capabilities);
     }
 
     /**
-     * 起一个声明的 Builder:id/类型/工厂在创建期钉定,依赖声明与标签链式追加。
+     * 起一个声明的 Builder:id/类型/工厂在创建期钉定,依赖声明链式追加。
      * 构建期校验(id 非空等)落在 {@link Builder#build()}。
      */
     public static <S> Builder<S> of(String id, Class<S> type, Function<ServiceEnv, S> factory) {
@@ -79,12 +77,7 @@ public final class ServiceSpec<S> {
         return optional;
     }
 
-    /** 能力标签(seal 成功注册、shutdown 摘除;词汇由提供方定义,引擎零字面量)。 */
-    public Set<String> capabilities() {
-        return capabilities;
-    }
-
-    /** 声明构建器:{@code ServiceSpec.of(...).requires(X.class).capabilities("x").build()}。 */
+    /** 声明构建器:{@code ServiceSpec.of(...).requires(X.class).build()}。 */
     public static final class Builder<S> {
 
         private final String id;
@@ -92,7 +85,6 @@ public final class ServiceSpec<S> {
         private final Function<ServiceEnv, S> factory;
         private final Set<Class<?>> required = new LinkedHashSet<>();
         private final Set<Class<?>> optional = new LinkedHashSet<>();
-        private final Set<String> capabilities = new LinkedHashSet<>();
 
         private Builder(String id, Class<S> type, Function<ServiceEnv, S> factory) {
             this.id = id;
@@ -109,20 +101,6 @@ public final class ServiceSpec<S> {
         /** 声明可选依赖类型:缺席不报错,运行期 {@code depOpt} 自查。 */
         public Builder<S> requiresOptional(Class<?> type) {
             optional.add(Objects.requireNonNull(type, "type"));
-            return this;
-        }
-
-        /** 声明能力标签:seal 成功后注册,shutdown 摘除。 */
-        public Builder<S> capabilities(String... tags) {
-            if (tags != null) {
-                for (String tag : tags) {
-                    Objects.requireNonNull(tag, "tag");
-                    if (tag.isBlank()) {
-                        throw new IllegalArgumentException("能力标签不可为空白串");
-                    }
-                    capabilities.add(tag);
-                }
-            }
             return this;
         }
 

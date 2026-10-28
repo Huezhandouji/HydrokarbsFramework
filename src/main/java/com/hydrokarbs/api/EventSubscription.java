@@ -6,8 +6,9 @@ package com.hydrokarbs.api;
  *
  * <p><b>句柄纪律(14.38)</b>:句柄只在插件实例字段中持有,{@code onDisable} 显式
  * close——reload 后旧句柄残留 = 重复事件与句柄泄漏;框架侧
- * {@code PluginDisableEvent} 兜底只摘注册物(模式/能力标签/贡献/地图),
- * <b>订阅句柄的回收是消费方自己的义务</b>(07 §7.5 示例一的 {@code sub} 字段先例)。
+ * {@code PluginDisableEvent} 兜底只摘注册物(模式/贡献/地图;★v1.7 起能力标签
+ * 随标签机制退场,不再在册),<b>订阅句柄的回收是消费方自己的义务</b>
+ * (07 §7.5 示例一的 {@code sub} 字段先例)。
  *
  * <p>幂等:重复 {@code close()} 无害、不抛(镜像 {@code SessionEventBus.Subscription}
  * 既有口径)。

@@ -21,7 +21,7 @@ import com.hydrokarbs.map.MapDefinition;
  * 模式注册表:双发现 + 注册闸(12-代码骨架 §12.2 骨架逐行落地;施工计划 2.2)。
  *
  * <p><b>发现是声明式的</b>:① {@link java.util.ServiceLoader}(本 jar,
- * {@code META-INF/services} 一行工厂全限定名)。★v1.5 收敛(2026-10-27,24 号修正案):
+ * {@code META-INF/services} 一行工厂全限定名)。★v1.6 收敛(2026-10-27,24 号修正案):
  * 跨插件的 ServicesManager 半边({@code ServiceRegisterEvent}/{@code ServiceUnregisterEvent}
  * 动态收录/摘除,原由 {@code listener/ProviderServiceListener} 承载)已退场——第三方
  * 模式改经 {@code MiniGameApi#registerMode} 显式注册。引擎零模式知识——任何
@@ -33,7 +33,7 @@ import com.hydrokarbs.map.MapDefinition;
  *       {@link #register}(ServiceLoader 半边)<b>跳过注册 + SEVERE</b>,其余模式
  *       照常(坏模板不进注册表);</li>
  *   <li>重复 id → 启动期 {@link #register} 与运行期 {@link #registerProvider}
- *       (★v1.5 起为 api 显式注册通道)一律响亮抛 {@link IllegalStateException}
+ *       (★v1.6 起为 api 显式注册通道)一律响亮抛 {@link IllegalStateException}
  *       (装配期错误,绝不静默覆盖;原「运行期 SEVERE + 忽略后来者」口径随
  *       ServicesManager 事件通道退场而失效——显式注册可捕获,无「事件回调抛异常
  *       中断整轮派发」的顾虑)。</li>
@@ -71,7 +71,7 @@ public final class MatchModeRegistry implements ModeLookup {
      * <ol>
      *   <li>{@code ServiceLoader.load(MatchModeProvider.class)}——本 jar 的
      *       {@code META-INF/services} 清单;</li>
-     *   <li>ServicesManager 半边——<b>历史口径(★v1.5 退场)</b>:原由
+     *   <li>ServicesManager 半边——<b>历史口径(★v1.6 退场)</b>:原由
      *       {@code listener/ProviderServiceListener} 承载的先启补收录与动态
      *       收录/摘除(§13.4)随显式注册裁决撤销;第三方模式改经
      *       {@code MiniGameApi#registerMode} 注册,引擎保持零 Bukkit 静态调用,
@@ -82,7 +82,7 @@ public final class MatchModeRegistry implements ModeLookup {
     public void discover() {
         // ① ServiceLoader(本 jar):SPI 清单里每行一个工厂全限定名
         ServiceLoader.load(MatchModeProvider.class).forEach(this::register);
-        // ② ServicesManager 半边已退场(★v1.5;原 listener/ProviderServiceListener
+        // ② ServicesManager 半边已退场(★v1.6;原 listener/ProviderServiceListener
         //    承载,见方法注历史口径段)——第三方注册走 MiniGameApi#registerMode 显式面。
         logger.log(Level.INFO, "模式注册表初始化完成:已注册 {0} 个模式", modes.size());
     }
@@ -109,7 +109,7 @@ public final class MatchModeRegistry implements ModeLookup {
     }
 
     /**
-     * 注册一个运行期提供方(★v1.5 起为 api 显式注册通道,唯一调用方
+     * 注册一个运行期提供方(★v1.6 起为 api 显式注册通道,唯一调用方
      * {@code MiniGameApiImpl#registerMode}):流程与 {@link #register} 同闸
      * (build(配置) → verifyDependencies → 入表),但<b>失败一律响亮上抛</b>——
      * build 抛异常(第三方工厂代码)、依赖校验失败、重复 id 均原样抛给调用方
@@ -134,7 +134,7 @@ public final class MatchModeRegistry implements ModeLookup {
     }
 
     /**
-     * 按 id 摘除一个模式(★v1.5 新增;api 显式摘除通道的注册表落点,镜像
+     * 按 id 摘除一个模式(★v1.6 新增;api 显式摘除通道的注册表落点,镜像
      * {@code MapRegistry#unregister} 的纯目录口径):目录中无此 id → 幂等 no-op。
      * <b>会话回退编排不在这里</b>——职责分离,由调用方(api 层)对受影响会话
      * 发起回退/解散(§3.1;镜像原 unregisterProvider 的职责分离口径)。

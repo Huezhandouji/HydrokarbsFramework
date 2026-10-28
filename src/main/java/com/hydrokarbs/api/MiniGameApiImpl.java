@@ -30,7 +30,6 @@ import com.hydrokarbs.engine.instance.MatchModeInstance;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.JoinResult;
@@ -48,30 +47,30 @@ import com.hydrokarbs.map.MapRegistry;
 /**
  * {@link MiniGameApi} 实现体:薄委托(07-公共API §7.2 表;7.1 施工文档步骤 6、
  * 7.5 步骤 5)。v1 面方法零业务分支的纪律原样有效;增量方法同样是「查表 → 转换 →
- * 委托」——成员操作 → {@code SessionService};能力标签 → {@code CapabilityRegistry}
- * (tag-only 形态不动,提供方归属映射在本类伴生,7.5 决策 5);地图注册 →
+ * 委托」——成员操作 → {@code SessionService};地图注册 →
  * {@code MapRegistry} 新口(正用守卫在本类,目录类不查会话);订阅 → 全局汇聚总线
  * (D3 镜像接线,7.5 决策 12);recipe 建会话 → 合并序后组 {@code SessionSpec}
  * 委托 {@code SessionService#create}(查重/缺依赖由引擎装配闸响亮拒,D14)。
- * ★v1.5 显式注册(24 号修正案):模式 → {@code MatchModeRegistry#registerProvider}
- * 响亮闸(归属簿记 {@code modeClaims} 在本类伴生,镜像 {@code capabilityClaims});
- * 会话组件 → 贡献收录表(响亮上抛);摘除回退编排自原 ServicesManager 监听器迁入
- * 本类(通道退场,编排逻辑一份不写两处)。
+ * ★v1.6 显式注册(24 号修正案):模式 → {@code MatchModeRegistry#registerProvider}
+ * 响亮闸(归属簿记 {@code modeClaims} 在本类伴生);会话组件 → 贡献收录表
+ * (响亮上抛);摘除回退编排自原 ServicesManager 监听器迁入本类(通道退场,
+ * 编排逻辑一份不写两处)。★v1.7(25 号修正案):D4 能力标签两法与提供方标签
+ * 归属簿记随标签机制全链退场删除——外部能力 = 会话组件桥接。
  *
  * <p><b>依赖面</b>:engine 契约({@code SessionService}/{@code MatchModeRegistry})+
- * 地图读面({@code MapRegistry})+ 能力标签机制件 + 会话事件总线(汇聚面)+
+ * 地图读面({@code MapRegistry})+ 会话事件总线(汇聚面)+
  * 贡献收录表(D14;均在 {@code apiDependsOnlyOnEngine} 允许集内,§16.2/7.5 决策 4)
  * + MiniMessage 序列化(平台文本原语)。主线程执行器构造注入:生产行 =
  * {@code Threads::runOnMain}(装配点传入;离线测试注入直通/单线程假——本类不
  * import {@code util.Threads},api 包不依赖允许集外的框架包)。
  *
  * <p><b>L0 装配面(不在 {@code MiniGameApi} 冻结面)</b>:
- * {@code unregisterCapabilitiesOf}/{@code unregisterModesOf}/
- * {@code unregisterMapsOf}/{@code unregisterSessionComponentsOf} 仅供
+ * {@code unregisterModesOf}/{@code unregisterMapsOf}/
+ * {@code unregisterSessionComponentsOf} 仅供
  * {@code PluginDisableEvent} 兜底监听调用(14.38/D8/7.5 决策 5——提供方插件
- * disable 自动摘除的框架侧落点;★v1.5 起四族注册物同款兜底);公开面消费者不触。
+ * disable 自动摘除的框架侧落点;★v1.6 起显式注册各族同款兜底);公开面消费者不触。
  *
- * <p><b>线程契约</b>(见接口 javadoc 表):快照/成员/能力/地图/显式注册方法假定
+ * <p><b>线程契约</b>(见接口 javadoc 表):快照/成员/地图/显式注册方法假定
  * 主线程;{@code switchMode} 任意线程发起、经 {@code mainExecutor} 回主线程查表与
  * 委托,异常经 future 传播、绝不悬挂(§14.1/§3.2)。订阅回调发生在事件发布线程
  * (会话事件发布在主线程),逐订阅者隔离在总线侧。
@@ -86,7 +85,6 @@ public final class MiniGameApiImpl implements MiniGameApi {
     private final SessionService sessionService;
     private final MatchModeRegistry modeRegistry;
     private final MapRegistry mapRegistry;
-    private final CapabilityRegistry capabilities;
     private final SessionEventBus globalEvents;
     private final SessionComponentContributionRegistry contributions;
     private final Executor mainExecutor;
@@ -94,25 +92,17 @@ public final class MiniGameApiImpl implements MiniGameApi {
     private final Supplier<String> fallbackModeId;
 
     /**
-     * 能力标签提供方归属映射(★v1.1-D4,7.5 决策 5):提供方身份键 → 其主张的标签集。
-     * 提供方插件 disable → 逐标签摘除并补回仍被其他提供方主张的标签(兜底监听消费)。
-     * 主线程单线程访问;身份键语义(按实例),7.2 要点 4 同款。
-     */
-    private final Map<Object, Set<String>> capabilityClaims = new LinkedHashMap<>();
-
-    /**
-     * 模式提供方归属映射(★v1.5 显式注册;镜像 {@code capabilityClaims} 先例):
-     * 提供方身份键 → 其注册的模式 id 集。显式摘除只准摘自己注册的 id(越权响亮拒);
-     * 提供方插件 disable → 逐 id 摘除并做会话回退编排(兜底监听消费)。
-     * 主线程单线程访问;身份键语义(按实例),7.2 要点 4 同款。
+     * 模式提供方归属映射(★v1.6 显式注册):提供方身份键 → 其注册的模式 id 集。
+     * 显式摘除只准摘自己注册的 id(越权响亮拒);提供方插件 disable → 逐 id 摘除
+     * 并做会话回退编排(兜底监听消费)。主线程单线程访问;身份键语义(按实例),
+     * 7.2 要点 4 同款。
      */
     private final Map<Object, Set<String>> modeClaims = new LinkedHashMap<>();
 
     /**
      * @param sessionService 会话服务(engine 契约;快照/切换/成员/建会话的委托目标,§3.2)
-     * @param modeRegistry   模式注册表(目录数据源,§12.1;★v1.5 显式注册/摘除的委托目标)
+     * @param modeRegistry   模式注册表(目录数据源,§12.1;★v1.6 显式注册/摘除的委托目标)
      * @param mapRegistry    地图目录(注册序清单;注册/摘除委托目标,★v1.2)
-     * @param capabilities   能力标签注册表(tag-only 机制件,D4 的写目标,7.5 决策 5)
      * @param globalEvents   全局汇聚事件总线(⑨ 号;订阅面数据源,D3 镜像接线,7.5 决策 12)
      * @param contributions  会话组件贡献收录表(D14 通道一;recipe 合并序的第一段)
      * @param mainExecutor   主线程回程口(switchMode 发起 hop;生产行 = {@code Threads::runOnMain})
@@ -120,14 +110,12 @@ public final class MiniGameApiImpl implements MiniGameApi {
      *                       §14.21——生产 = {@code cfg.get("session.fallback-mode", "")} lambda)
      */
     public MiniGameApiImpl(SessionService sessionService, MatchModeRegistry modeRegistry,
-                           MapRegistry mapRegistry, CapabilityRegistry capabilities,
-                           SessionEventBus globalEvents,
+                           MapRegistry mapRegistry, SessionEventBus globalEvents,
                            SessionComponentContributionRegistry contributions,
                            Executor mainExecutor, Supplier<String> fallbackModeId) {
         this.sessionService = Objects.requireNonNull(sessionService, "sessionService");
         this.modeRegistry = Objects.requireNonNull(modeRegistry, "modeRegistry");
         this.mapRegistry = Objects.requireNonNull(mapRegistry, "mapRegistry");
-        this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
         this.globalEvents = Objects.requireNonNull(globalEvents, "globalEvents");
         this.contributions = Objects.requireNonNull(contributions, "contributions");
         this.mainExecutor = Objects.requireNonNull(mainExecutor, "mainExecutor");
@@ -232,20 +220,6 @@ public final class MiniGameApiImpl implements MiniGameApi {
         return handle::close;
     }
 
-    // ── MiniGameApi:能力标签(D4;机制件 tag-only 形态不动,归属映射伴生) ──
-
-    @Override
-    public void registerCapability(org.bukkit.plugin.Plugin provider, String tag) {
-        Objects.requireNonNull(provider, "provider");
-        capabilities.register(tag);                 // 幂等 + 空白校验(引擎既有;7.5 决策 5)
-        capabilityClaims.computeIfAbsent(provider, key -> new LinkedHashSet<>()).add(tag);
-    }
-
-    @Override
-    public Set<String> capabilities() {
-        return capabilities.available();
-    }
-
     // ── MiniGameApi:地图注册(★v1.2;目录委托 + 正用守卫) ────────────────
 
     @Override
@@ -270,7 +244,7 @@ public final class MiniGameApiImpl implements MiniGameApi {
         mapRegistry.unregister(provider, mapId);    // 幂等 no-op 在目录侧(20-D4)
     }
 
-    // ── MiniGameApi:模式显式注册(★v1.5;响亮闸 + 归属簿记) ──────────────
+    // ── MiniGameApi:模式显式注册(★v1.6;响亮闸 + 归属簿记) ──────────────
 
     @Override
     public MatchModeInfo registerMode(org.bukkit.plugin.Plugin provider, MatchModeProvider factory) {
@@ -294,18 +268,18 @@ public final class MiniGameApiImpl implements MiniGameApi {
         boolean owned = claimed != null && claimed.remove(modeId);
         if (!owned) {
             if (isRegistered(modeId)) {
-                // 越权摘除:目录里有但不是本提供方注册的(含出厂模式)→ 响亮拒(★v1.5)
+                // 越权摘除:目录里有但不是本提供方注册的(含出厂模式)→ 响亮拒(★v1.6)
                 throw new IllegalStateException("模式 " + modeId + " 不属于提供方 "
-                        + provider.getName() + ",摘除被拒(只准摘自己注册的模式,★v1.5)");
+                        + provider.getName() + ",摘除被拒(只准摘自己注册的模式,★v1.6)");
             }
-            return;                                    // id 不存在 → 幂等 no-op(★v1.5)
+            return;                                    // id 不存在 → 幂等 no-op(★v1.6)
         }
         if (modeRegistry.unregister(modeId)) {
             runRemovalFallback(Set.of(modeId));        // 摘除回退编排(§13.4/§3.2 二级)
         }
     }
 
-    // ── MiniGameApi:会话组件显式注册(★v1.5;D14 通道一的显式面) ──────────
+    // ── MiniGameApi:会话组件显式注册(★v1.6;D14 通道一的显式面) ──────────
 
     @Override
     public void registerSessionComponents(org.bukkit.plugin.Plugin provider,
@@ -329,34 +303,10 @@ public final class MiniGameApiImpl implements MiniGameApi {
         }
     }
 
-    // ── L0 装配面:PluginDisableEvent 兜底摘除(不在 MiniGameApi 冻结面;14.38/D8) ──
+    // ── L0 装配面:PluginDisableEvent 兜底摘除(不在 MiniGameApi 冻结面;14.38) ──
 
     /**
-     * 摘除某提供方注册的全部能力标签(D4;兜底监听专用)。多提供方主张同一标签时,
-     * 先逐标签摘除、再把仍被其他提供方主张的标签补回(「可用 ⟺ 至少一个提供方主张」
-     * 不变式;跨域同标签(服务侧注册在前)由提供方词汇纪律规避,边界登记于 javadoc)。
-     */
-    public void unregisterCapabilitiesOf(org.bukkit.plugin.Plugin provider) {
-        Set<String> claimed = capabilityClaims.remove(provider);
-        if (claimed == null || claimed.isEmpty()) {
-            return;
-        }
-        for (String tag : claimed) {
-            capabilities.unregister(tag);
-        }
-        for (Set<String> remaining : capabilityClaims.values()) {
-            for (String tag : remaining) {
-                if (claimed.contains(tag)) {
-                    capabilities.register(tag);
-                }
-            }
-        }
-        LOG.log(Level.INFO, "已按提供方摘除能力标签(D8 兜底): {0} → {1}",
-                new Object[] { provider.getName(), claimed });
-    }
-
-    /**
-     * 摘除某提供方注册的全部模式(★v1.5;兜底监听专用):逐 id 摘除并走与
+     * 摘除某提供方注册的全部模式(★v1.6;兜底监听专用):逐 id 摘除并走与
      * {@link #unregisterMode} 同一回退编排(会话回退不因插件下线而缺位;§13.4)。
      * 幂等(无注册 → 空集 no-op)。
      */
@@ -391,7 +341,7 @@ public final class MiniGameApiImpl implements MiniGameApi {
     }
 
     /**
-     * 摘除某提供方的全部会话组件贡献(★v1.5;兜底监听专用):后续会话不再合并
+     * 摘除某提供方的全部会话组件贡献(★v1.6;兜底监听专用):后续会话不再合并
      * (已装配会话不受影响——无运行期拆卸,随 dissolve 自然消亡,D14)。幂等。
      */
     public void unregisterSessionComponentsOf(org.bukkit.plugin.Plugin provider) {
@@ -443,9 +393,9 @@ public final class MiniGameApiImpl implements MiniGameApi {
     private MatchModeInfo toModeInfo(MatchMode mode) {
         return new MatchModeInfo(mode.id(), MINI.serialize(mode.displayName()),
                 mode.description().stream().map(MINI::serialize).toList(), mode.icon(),
-                Set.copyOf(mode.mapTags()), Set.copyOf(mode.meta().requiredCapabilities()),
-                mode.meta().recordsHistory(), mode.meta().minParticipants(),
-                mode.meta().maxParticipants(), mode.meta().defaultTransition().name());
+                Set.copyOf(mode.mapTags()), mode.meta().recordsHistory(),
+                mode.meta().minParticipants(), mode.meta().maxParticipants(),
+                mode.meta().defaultTransition().name());
     }
 
     /** 地图 → 快照(分量与施工文档形状的出入见 MapInfo javadoc)。 */
@@ -508,7 +458,7 @@ public final class MiniGameApiImpl implements MiniGameApi {
         return null;
     }
 
-    // ── 摘除回退编排(★v1.5 自原 ServicesManager 监听器迁入;§13.4/§3.2 二级) ──
+    // ── 摘除回退编排(★v1.6 自原 ServicesManager 监听器迁入;§13.4/§3.2 二级) ──
 
     /**
      * 摘除回退编排:对每个当前模式 id ∈ 被摘集的存活会话——

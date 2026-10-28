@@ -158,7 +158,7 @@ class InstanceLifecycleSmokeTest {
 
     private static MatchMode mode(String id, MatchModeComponent.Specification<?>... specs) {
         MatchMode.Builder builder = new MatchMode.Builder(id)
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
         int index = 1;
         for (MatchModeComponent.Specification<?> spec : specs) {
             builder.addComponent("c" + index++, spec);

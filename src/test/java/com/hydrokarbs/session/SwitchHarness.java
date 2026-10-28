@@ -21,7 +21,6 @@ import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.ModeLookup;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionPolicy;
@@ -46,7 +45,6 @@ final class SwitchHarness {
 
     final MatchModeRegistry registry = new MatchModeRegistry(id -> OfflineAssembly.cfg());
     final MapRegistry maps;
-    final CapabilityRegistry capabilities = new CapabilityRegistry();
     final FakeWorldPort worlds;
     final List<Collection<UUID>> relocations = new ArrayList<>();       // 解散传送记录
     final List<Collection<UUID>> cleanups = new ArrayList<>();          // 兜底清态记录
@@ -108,7 +106,6 @@ final class SwitchHarness {
         });
         service = new SessionServiceImpl.Builder()
                 .modes(lookupOverride != null ? lookupOverride : registry)
-                .capabilities(capabilities)
                 .worlds(worlds)
                 .maps(maps)
                 .configSource(id -> OfflineAssembly.cfg())
@@ -191,18 +188,9 @@ final class SwitchHarness {
                           MatchModeMeta.DefaultTransition transition) {
         MatchMode.Builder builder = new MatchMode.Builder(id)
                 .mapTags(TAG)
-                .meta(new MatchModeMeta(Set.of(), false, min, max, transition));
+                .meta(new MatchModeMeta(false, min, max, transition));
         specs.forEach(builder::addComponent);
         return builder.build();
-    }
-
-    /** 指定能力要求/缺省去向的模式。 */
-    static MatchMode mode(String id, int min, int max, Set<String> requiredCapabilities,
-                          MatchModeMeta.DefaultTransition transition) {
-        return new MatchMode.Builder(id)
-                .mapTags(TAG)
-                .meta(new MatchModeMeta(requiredCapabilities, false, min, max, transition))
-                .build();
     }
 
     /** 名册 uuid 集(断言辅助)。 */

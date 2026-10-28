@@ -40,7 +40,6 @@ import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.ResetStrategy;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
@@ -104,10 +103,11 @@ class MiniGameApiImplTest {
             thread.setDaemon(true);
             return thread;
         });
-        // 7.5 构造增量:能力标签机制件 + ⑨ 汇聚总线 + D14 贡献收录表(空表;本测试零消费,
+        // 7.5 构造增量:⑨ 汇聚总线 + D14 贡献收录表(空表;本测试零消费,
         //   增量行为由 MiniGameApiMembersTest/MiniGameApiEventsTest/ContributionTest 承载);
-        //   ★v1.5 构造增量:fallbackModeId 空读口(本测试不消费摘除回退编排)
-        api = new MiniGameApiImpl(fakeService, modeRegistry, mapRegistry, new CapabilityRegistry(),
+        //   ★v1.6 构造增量:fallbackModeId 空读口(本测试不消费摘除回退编排);
+        //   ★v1.7 起构造不再收能力标签机制件(25 号修正案)
+        api = new MiniGameApiImpl(fakeService, modeRegistry, mapRegistry,
                 new SessionEventBus(), new SessionComponentContributionRegistry(), mainExecutor,
                 () -> "");
     }
@@ -391,7 +391,7 @@ class MiniGameApiImplTest {
                         .displayName(Component.text("竞技", NamedTextColor.RED))
                         .description(List.of(Component.text("第一行", NamedTextColor.RED),
                                 Component.text("第二行", NamedTextColor.RED)))
-                        .meta(new MatchModeMeta(Set.of(), false, 2, 10,
+                        .meta(new MatchModeMeta(false, 2, 10,
                                 MatchModeMeta.DefaultTransition.ROTATION))
                         .build();
             }

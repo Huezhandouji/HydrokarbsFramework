@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import com.hydrokarbs.engine.service.ServiceLifecycle;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★37 失败即回滚(1.6「测试与验收」表;18 号修正案 §7)。
@@ -76,7 +75,7 @@ class ServiceRegistryRollbackTest {
     /** 第 N 个工厂抛 → 已启动服务逆序 stop 恰一次;get 转不可用;原异常上抛。 */
     @Test
     void factoryFailureRollsBackStartedServicesInReverse() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("a", Aaa.class, env -> new Aaa("a", log)).build());
         registry.install(ServiceSpec.of("b", Bbb.class, env -> new Bbb("b", log)).build());
@@ -97,7 +96,7 @@ class ServiceRegistryRollbackTest {
     /** start 抛 → 已启动者逆序 stop 恰一次;启动失败者不被 stop(未成功启动,对称口径)。 */
     @Test
     void startFailureRollsBackOnlyStartedServices() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("a", Aaa.class, env -> new Aaa("a", log)).build());
         registry.install(ServiceSpec.of("b", Bbb.class, env -> new Bbb("b", log, true)).build());
@@ -116,7 +115,7 @@ class ServiceRegistryRollbackTest {
     /** 回滚后注册表终态封闭:install/seal 均拒。 */
     @Test
     void rolledBackRegistryIsClosed() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         registry.install(ServiceSpec.of("a", Aaa.class, env -> {
             throw new IllegalStateException("boom");
         }).build());

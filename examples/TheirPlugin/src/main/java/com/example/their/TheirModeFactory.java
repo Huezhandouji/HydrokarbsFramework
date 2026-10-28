@@ -48,7 +48,7 @@ public final class TheirModeFactory implements MatchModeProvider {
                 .displayName(Component.text("Their Mode"))
                 .icon(Material.BELL)
                 .mapTags(Set.of("demo"))
-                .meta(new MatchModeMeta(Set.of(), false, 1, 16,
+                .meta(new MatchModeMeta(false, 1, 16,
                         MatchModeMeta.DefaultTransition.STAY))
                 .addComponent("banner", new TheirBannerComponent.Spec())
                 .build();

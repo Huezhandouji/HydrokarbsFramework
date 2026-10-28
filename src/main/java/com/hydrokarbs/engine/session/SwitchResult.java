@@ -37,8 +37,8 @@ public sealed interface SwitchResult {
         MODE_NOT_FOUND,
         /** 会话正处于切换中,重入被拒(时序冲突,稍后重试)。 */
         SWITCH_IN_PROGRESS,
-        /** 其余一切拒绝:目标侧(能力标签/人数窗/依赖校验/地图适配/世界副本准备)或
-         *  切换防护(最短驻留)不满足;detail 携带人读原因清单。 */
+        /** 其余一切拒绝:目标侧(人数窗/依赖校验/地图适配/世界副本准备)或
+         *  切换防护(最短驻留)不满足;detail 携带人读原因清单(★v1.7 起无能力校验)。 */
         REJECTED_BY_TARGET_MODE
     }
 }

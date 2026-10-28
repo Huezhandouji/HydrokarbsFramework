@@ -119,7 +119,7 @@ class MatchModeInstanceCloseIdempotencyTest {
     void closeThreeTimesStopsEachComponentExactlyOnceReverseOrder() {
         List<String> log = new ArrayList<>();
         MatchMode.Builder builder = new MatchMode.Builder("m1")
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
         for (int i = 1; i <= 3; i++) {
             builder.addComponent("c" + i, new ProbeSpec(log));
         }

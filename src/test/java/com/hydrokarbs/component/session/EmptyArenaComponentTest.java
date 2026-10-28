@@ -1,7 +1,6 @@
 package com.hydrokarbs.component.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -17,7 +16,6 @@ import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.PlatformPort;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.JoinResult;
 import com.hydrokarbs.engine.session.Session;
@@ -74,7 +72,6 @@ class EmptyArenaComponentTest {
             com.hydrokarbs.testkit.MapTestKit.registered(maps, templatesRoot, OfflineAssembly.map());
             service = new SessionServiceImpl.Builder()
                     .modes(modes)
-                    .capabilities(new CapabilityRegistry())
                     .worlds(FakeWorldPort.immediate())
                     .maps(maps)
                     .configSource(id -> OfflineAssembly.cfg())
@@ -209,6 +206,5 @@ class EmptyArenaComponentTest {
 
         assertTrue(dissolved.isEmpty(), "不挂空场组件 = 永不解散(常驻会话零配置哲学)");
         assertTrue(harness.service.session(session.id()).isPresent());
-        assertFalse(session.sessionComponentCapabilities().contains(DissolveReason.EMPTY.name()));
     }
 }

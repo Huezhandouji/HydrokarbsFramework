@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import com.hydrokarbs.engine.service.ServiceLifecycle;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★36 拓扑序 + 声明序稳定(1.6「测试与验收」表;18 号修正案 §7)。
@@ -76,7 +75,7 @@ class ServiceRegistryOrderTest {
     /** 乱序 install(消费者在前、提供者在后)→ 启动序为拓扑序(提供者先启动)。 */
     @Test
     void declarationOrderYieldsToTopologicalOrder() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("consumer", Layer2.class, env -> new Layer2("consumer", log))
                 .requires(Layer1.class)
@@ -91,7 +90,7 @@ class ServiceRegistryOrderTest {
     /** 无依赖关系的同层服务按声明序启动。 */
     @Test
     void sameLayerKeepsDeclarationOrder() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("z-first", StandaloneX.class,
                 env -> new StandaloneX("z-first", log)).build());
@@ -107,7 +106,7 @@ class ServiceRegistryOrderTest {
     /** 混合:依赖对间按拓扑序,可并行层内按声明序(逐轮就绪序可精确推演)。 */
     @Test
     void mixedGraphOrdersTopologicallyThenByDeclaration() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("l2", Layer2.class, env -> new Layer2("l2", log))
                 .requires(Layer1.class)

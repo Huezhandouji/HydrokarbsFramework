@@ -2,24 +2,22 @@ package com.hydrokarbs.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
 import com.hydrokarbs.engine.service.ServiceLifecycle;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★38 关停逆序幂等(1.6「测试与验收」表;18 号修正案 §7)。
  *
- * <p>断言要点:shutdown 连调 3 次 stop 恰一次;stop 异常不中断其余;
- * 能力标签全部摘除。
+ * <p>断言要点:shutdown 连调 3 次 stop 恰一次;stop 异常不中断其余。
+ * ★v1.7(25 号修正案):原能力标签注册/摘除命题(capabilityTagsRegisteredOnSealAndRemovedOnShutdown)
+ * 随能力标签机制全链退场删除,shutdown 契约自此不含标签步骤。
  */
 class ServiceRegistryShutdownTest {
 
@@ -83,7 +81,7 @@ class ServiceRegistryShutdownTest {
     /** shutdown 连调 3 次:每个服务的 stop 恰执行一次,顺序与启动序相反。 */
     @Test
     void repeatedShutdownStopsEachServiceExactlyOnceInReverse() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("a", Aaa.class, env -> new Aaa("a", log)).build());
         registry.install(ServiceSpec.of("b", Bbb.class, env -> new Bbb("b", log)).build());
@@ -101,7 +99,7 @@ class ServiceRegistryShutdownTest {
     /** 某服务 stop 抛异常:不中断其余服务的关停,shutdown 本身不外抛。 */
     @Test
     void stopFailureDoesNotBreakRemainingShutdown() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("boom", Aaa.class, env -> new Aaa("boom", log, true)).build());
         registry.install(ServiceSpec.of("ok", Bbb.class, env -> new Bbb("ok", log)).build());
@@ -115,7 +113,7 @@ class ServiceRegistryShutdownTest {
     /** stop 异常在中间位也不中断其余(boom 放中段)。 */
     @Test
     void midStopFailureDoesNotBreakTheRest() {
-        ServiceRegistry registry = new ServiceRegistry(new CapabilityRegistry());
+        ServiceRegistry registry = new ServiceRegistry();
         List<String> log = new ArrayList<>();
         registry.install(ServiceSpec.of("a", Aaa.class, env -> new Aaa("a", log)).build());
         registry.install(ServiceSpec.of("boom", Bbb.class, env -> new Bbb("boom", log, true)).build());
@@ -125,24 +123,5 @@ class ServiceRegistryShutdownTest {
         assertDoesNotThrow(registry::shutdown);
         assertEquals(List.of("start:a", "start:boom", "start:c", "stop:c", "stop:boom", "stop:a"), log,
                 "中段的 stop 异常不阻断后续关停(c→boom(抛)→a 全部尝试恰一次)");
-    }
-
-    /** 能力标签:seal 成功注册进能力注册表,shutdown 全部摘除。 */
-    @Test
-    void capabilityTagsRegisteredOnSealAndRemovedOnShutdown() {
-        CapabilityRegistry capabilities = new CapabilityRegistry();
-        ServiceRegistry registry = new ServiceRegistry(capabilities);
-        registry.install(ServiceSpec.of("a", Aaa.class, env -> new Aaa("a", new ArrayList<>()))
-                .capabilities("tag-a1", "tag-a2")
-                .build());
-        registry.install(ServiceSpec.of("b", Bbb.class, env -> new Bbb("b", new ArrayList<>()))
-                .capabilities("tag-b")
-                .build());
-        registry.seal();
-        assertEquals(Set.of("tag-a1", "tag-a2", "tag-b"), capabilities.available(),
-                "seal 成功后按声明把标签注册进能力注册表");
-
-        registry.shutdown();
-        assertTrue(capabilities.available().isEmpty(), "shutdown 后能力标签全部摘除(★38)");
     }
 }

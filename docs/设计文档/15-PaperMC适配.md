@@ -2,7 +2,7 @@
 
 > HydroKarbs MiniGame Framework · v1.6(现行;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册通道收敛;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
 >
-> 文档版本:v1.6(2026-10-27,修正案 24 号:显式注册收敛——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.6 澄清注(SHDF 扩展线实例,监听角色插件服务——不随 v1.6 退役;框架侧已无 ServiceRegisterEvent 监听器);其余零命中零改动,24 号);v1.4(2026-10-27,地图注册通道收敛——§15.2 文件分工注与树 maps 声明行加「地图仅注册通道」退场注(模板目录约定不变)、示例句注、热重载 maps 级随文件半边废止、★v1.2 注就地修订、解析实现要点代码块改现行 YamlCodec(readMap 已删),22 号;v1.3 于 2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
+> 文档版本:v1.7(2026-10-27,修正案 25 号:**能力标签机制退场**——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.7 短注(框架侧标签机制已全链退场,该行为宿主扩展线历史示例,25 号);其余零命中零改动;v1.6(2026-10-27,修正案 24 号:显式注册收敛——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.6 澄清注(SHDF 扩展线实例,监听角色插件服务——不随 v1.6 退役;框架侧已无 ServiceRegisterEvent 监听器);其余零命中零改动,24 号);v1.4(2026-10-27,地图注册通道收敛——§15.2 文件分工注与树 maps 声明行加「地图仅注册通道」退场注(模板目录约定不变)、示例句注、热重载 maps 级随文件半边废止、★v1.2 注就地修订、解析实现要点代码块改现行 YamlCodec(readMap 已删),22 号;v1.3 于 2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
 
 ### 15.1 事件监听:Paper Event API 使用规范
 
@@ -16,7 +16,7 @@
 | `InteractionListener` | `PlayerInteractEvent` | `NORMAL` | `true` | 只处理真正生效的交互(被取消的不该起读条) |
 | `InteractionListener#onMove` | `PlayerMoveEvent` | `MONITOR` | `false` | 打断读条用的**只读观察**;高频事件,内部必须"先做廉价判断再做事" |
 | `ProtectionListener` | `InventoryClickEvent` + **`InventoryDragEvent`** | `HIGH` | `true` | ★ 只处理 `Click` 会漏掉拖拽;`HIGH` 早于 GUI 逻辑拦截 |
-| `CapabilityListener` | `ServiceRegisterEvent` / `ServiceUnregisterEvent` | `NORMAL` | `false` | ★v2:宿主插件装/卸时刷新 CapabilityRegistry(SHDF 扩展线实例:监听角色插件,见 Shdf具体玩法设计案/08-角色桥接.md)。★v1.6 澄清注(24 号):**不随 v1.6 退役**——本行为 SHDF 扩展线软依赖机制,监听对象 = 能力提供方插件服务注册;随提供方通道退场的是**框架侧** ServiceRegisterEvent 收录监听器(`ProviderServiceListener` 已删,模式/组件注册改经 api 显式四法)——框架侧已无 ServiceRegisterEvent 监听器 |
+| `CapabilityListener` | `ServiceRegisterEvent` / `ServiceUnregisterEvent` | `NORMAL` | `false` | ★v2:宿主插件装/卸时刷新 CapabilityRegistry(SHDF 扩展线实例:监听角色插件,见 Shdf具体玩法设计案/08-角色桥接.md)。★v1.6 澄清注(24 号):**不随 v1.6 退役**——本行为 SHDF 扩展线软依赖机制,监听对象 = 能力提供方插件服务注册;随提供方通道退场的是**框架侧** ServiceRegisterEvent 收录监听器(`ProviderServiceListener` 已删,模式/组件注册改经 api 显式四法)——框架侧已无 ServiceRegisterEvent 监听器。★v1.7 短注(25 号):**框架侧能力标签机制已全链退场**——`CapabilityRegistry` 与标签口径为历史;本行为宿主扩展线对接宿主自持机制的历史示例,随 Shdf 侧 §8.8 扩注读作历史口径 |
 | 调试/审计 | 任意 | `MONITOR` | `true` | 纯观察 |
 
 #### 规范清单

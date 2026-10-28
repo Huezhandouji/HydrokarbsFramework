@@ -93,7 +93,7 @@ class MatchModeRegistryTest {
             public MatchMode build(MatchModeConfig cfg) {
                 MatchMode.Builder builder = new MatchMode.Builder(id)
                         .mapTags(mapTags)
-                        .meta(new MatchModeMeta(Set.of(), false, 0, 100,
+                        .meta(new MatchModeMeta(false, 0, 100,
                                 MatchModeMeta.DefaultTransition.STAY));
                 int index = 1;
                 for (MatchModeComponent.Specification<?> spec : specs) {
@@ -152,7 +152,7 @@ class MatchModeRegistryTest {
     @Test
     void dependencyExceptionTypeIsComponentDependencyException() {
         MatchMode bad = new MatchMode.Builder("probe")
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100, MatchModeMeta.DefaultTransition.STAY))
+                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY))
                 .addComponent("needs", TestComponent.requiring(hookLog, Unresolved.class))
                 .build();
         assertThrows(ComponentDependencyException.class, bad::verifyDependencies);

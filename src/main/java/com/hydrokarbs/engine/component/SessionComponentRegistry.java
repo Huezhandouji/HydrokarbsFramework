@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -265,7 +264,7 @@ public final class SessionComponentRegistry implements SessionComponentLookupPor
         }
     }
 
-    // ── 资源登记与能力标签 ───────────────────────────────────────
+    // ── 资源登记 ─────────────────────────────────────────────────
 
     /**
      * 登记可回收资源句柄到发起组件名下(stop/隔离统一回收)。
@@ -282,15 +281,6 @@ public final class SessionComponentRegistry implements SessionComponentLookupPor
             throw new IllegalStateException("资源登记的会话组件未注册: " + owner.id());
         }
         bucket.add(handle);
-    }
-
-    /** 全部在册组件的能力标签并集(A2 可用集的会话侧来源,D6;随 dissolve 消灭)。 */
-    public Set<String> capabilitiesUnion() {
-        Set<String> union = new LinkedHashSet<>();
-        for (Binding binding : bindingsById.values()) {
-            union.addAll(binding.snapshot().capabilities());
-        }
-        return union;
     }
 
     /**

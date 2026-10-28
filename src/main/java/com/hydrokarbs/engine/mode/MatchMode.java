@@ -39,7 +39,7 @@ public final class MatchMode {
     private final List<Component> description;
     private final Material icon;                 // 入口牌子/GUI 用;未设置时为 null(消费方自理)
     private final Set<String> mapTags;           // 支持哪些地图(按 MapDefinition.tags 匹配)
-    private final MatchModeMeta meta;            // 能力标签/是否记史/人数窗/缺省去向(入场裁决已归组件)
+    private final MatchModeMeta meta;            // 是否记史/人数窗/缺省去向(入场裁决已归组件;★v1.7 起无能力标签)
 
     /** 唯一有序组件描述符表:LinkedHashMap,声明序 = 装配调用序 = 生命周期/事件派发序。 */
     private final Map<String, ComponentEntry> components;

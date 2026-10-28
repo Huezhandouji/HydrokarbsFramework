@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -70,11 +69,14 @@ import com.hydrokarbs.map.MapRegistry;
  *
  * <p><b>★v4(2.6)接线扩展——公开方法签名不变</b>:① {@code create} 内装配会话级
  * 组件(先于首个实例就绪,§3.8);② {@code dissolve} 内逆序 stop + 登记资源回收;
- * ③ 切换阶段 A2 可用集扩为「进程级标签 ∪ 本会话会话组件标签」(D6)——推荐
- * <b>本会话标签集并集</b>而非进程级 {@code register/unregister}(arena 多会话同标签
- * 不互踩、随 dissolve 天然摘除;备选「进程级注册路径」归宿主扩展线,★ 待裁决②,
- * 见施工计划 2.6「要点」末条);④ {@code SessionPortImpl} 承载会话自面(两个行动口
- * 与 switchMode/dissolve 同一实现,D8)。A/B 两阶段与装配代码零改动(★33)。
+ * ③ {@code SessionPortImpl} 承载会话自面(两个行动口与 switchMode/dissolve 同一实现,
+ * D8)。A/B 两阶段与装配代码零改动(★33)。
+ *
+ * <p><b>★v1.7(25 号修正案):A2 能力校验随能力标签机制全链退场</b>——原
+ * 「声明标签 ⊆ 进程级 ∪ 本会话标签」的字符串校验删除;模式对外部能力的硬依赖改由
+ * 会话组件桥接表达:桥接会话组件经 {@code registerSessionComponents}/recipe 进会话,
+ * 消费方组件 {@code requires/requiresOptional} 类型化声明,装配期响亮失败、
+ * 运行期隔离(quarantine)——机制在框架内既有,本变更不新增代码。
  *
  * <p>线程契约:全部公共方法主线程调用;future 的完成点收敛在节拍器执行段(成功)
  * 或主线程执行器(拒绝)。
@@ -85,7 +87,6 @@ public final class SessionServiceImpl implements SessionService {
     private static final long WORLD_PREPARE_TIMEOUT_SECONDS = 30L;
 
     private final ModeLookup modes;
-    private final CapabilityRegistry capabilities;
     private final WorldPort worlds;
     private final MapRegistry maps;
     private final Function<String, MatchModeConfig> configSource;
@@ -106,7 +107,6 @@ public final class SessionServiceImpl implements SessionService {
 
     private SessionServiceImpl(Builder builder) {
         this.modes = builder.modes;
-        this.capabilities = builder.capabilities;
         this.worlds = builder.worlds;
         this.maps = builder.maps;
         this.configSource = builder.configSource;
@@ -264,17 +264,9 @@ public final class SessionServiceImpl implements SessionService {
                     target.modeId() + " 未注册: " + e.getMessage()));
             return future;
         }
-        // A2 能力校验(★v4-D6):声明标签 ⊆ 可用标签——可用集 = 进程级标签 ∪ 本会话
-        // 会话组件标签(随 dissolve 摘除;推荐「本会话标签集并集」而非进程级
-        // register/unregister——arena 多会话同标签不互踩;★ 待裁决②,见类注)
-        Set<String> missing = new LinkedHashSet<>(mode.meta().requiredCapabilities());
-        missing.removeAll(capabilities.available());
-        missing.removeAll(session.sessionComponentCapabilities());
-        if (!missing.isEmpty()) {
-            future.complete(rejected(SwitchResult.Reason.REJECTED_BY_TARGET_MODE,
-                    "目标模式声明的能力标签缺失: " + missing));
-            return future;
-        }
+        // A2 能力校验已随能力标签机制退场(★v1.7,25 号修正案):模式对外部能力的
+        // 硬依赖改由会话组件桥接表达(requires/requiresOptional 类型化声明 + 装配闸
+        // + 运行期 quarantine);切换同步段自此无字符串校验步。
         // A3 地图解析(指定地图用之;否则按模式标签挑一张,最小实现取装载序第一张)
         MapDefinition map;
         try {
@@ -629,7 +621,7 @@ public final class SessionServiceImpl implements SessionService {
      * →(若有实例)关闭实例 → <b>会话组件逆序 stop + 登记资源统一回收</b>(★新增)→
      * 成员传送主城出生点(三级:失败保持原地)→ 销毁世界副本接缝(discardSession:
      * 复用窗口随会话解散关闭)→ 兜底清态 → 摘除 →
-     * 发解散事件。会话组件标签集随会话终结一并消灭(A2 并集不再含它,D6)。
+     * 发解散事件。
      */
     private void dissolveNow(Session session, DissolveReason reason) {
         if (session.state() == SessionState.DISSOLVING) {
@@ -838,7 +830,6 @@ public final class SessionServiceImpl implements SessionService {
     public static final class Builder {
 
         private ModeLookup modes;
-        private CapabilityRegistry capabilities;
         private WorldPort worlds;
         private MapRegistry maps;
         private Function<String, MatchModeConfig> configSource;
@@ -854,11 +845,6 @@ public final class SessionServiceImpl implements SessionService {
         /** 模式查询口(生产 = 模式注册表;测试 = 可控假实现)。 */
         public Builder modes(ModeLookup modes) {
             this.modes = Objects.requireNonNull(modes, "modes");
-            return this;
-        }
-
-        public Builder capabilities(CapabilityRegistry capabilities) {
-            this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
             return this;
         }
 
@@ -939,7 +925,6 @@ public final class SessionServiceImpl implements SessionService {
         public SessionServiceImpl build() {
             StringBuilder missing = new StringBuilder();
             if (modes == null) missing.append("modes ");
-            if (capabilities == null) missing.append("capabilities ");
             if (worlds == null) missing.append("worlds ");
             if (maps == null) missing.append("maps ");
             if (configSource == null) missing.append("configSource ");

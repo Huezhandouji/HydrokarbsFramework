@@ -1,7 +1,6 @@
 package com.hydrokarbs.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -74,7 +73,7 @@ class SessionComponentSingletonTest {
         SwitchHarness harness = new SwitchHarness("fb", SwitchHarness.mode("fb", 0, 100),
                 SwitchHarness.mode("probe-mode", 0, 100));
         Session first = harness.createSession("s1", "probe-mode",
-                List.of(SessionProbeComponent.tagged(new ArrayList<>(), "first-only-tag")));
+                List.of(SessionProbeComponent.spec(new ArrayList<>())));
         Session second = harness.createSession("s2", "probe-mode");
 
         SessionProbeComponent inFirst = first.sessionComponents().get(SessionProbeComponent.class);
@@ -83,10 +82,8 @@ class SessionComponentSingletonTest {
                 "会话二查不到会话一的组件(id 命名空间隔离)");
         assertTrue(second.view().components(SessionProbeComponent.class).isEmpty(),
                 "会话二只读视图查不到会话一的组件");
-        assertTrue(first.sessionComponentCapabilities().contains("first-only-tag"),
-                "会话一持有本会话标签");
-        assertFalse(second.sessionComponentCapabilities().contains("first-only-tag"),
-                "会话一的标签不泄入会话二(A2 并集按会话隔离)");
+        // ★v1.7:原尾注两条 A2 并集按会话隔离断言随能力标签机制退场删除;
+        // 隔离命题本体由上两条 id/视图断言承载。
     }
 
     @Test

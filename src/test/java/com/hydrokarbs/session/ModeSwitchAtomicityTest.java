@@ -26,7 +26,6 @@ import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.instance.MatchModeInstance;
 import com.hydrokarbs.engine.mode.MatchMode;
-import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.ModeLookup;
 import com.hydrokarbs.engine.session.DissolveReason;
@@ -42,10 +41,12 @@ import com.hydrokarbs.testkit.TestComponent;
 
 /**
  * ★14「切换原子性」首建(16-路线图与验收 §16.2;2.3 测试表):
- * ①阶段 A 任一步失败(未知 id/能力缺失/地图适配/人数窗/依赖异常/世界失败)→
+ * ①阶段 A 任一步失败(未知 id/地图适配/人数窗/依赖异常/世界失败)→
  * 旧实例继续运行、future 完成拒绝;②造件/唤醒/生效三抛点 → 都落到回退模式且成员
  * 仍有实例;③生效抛的路径先全停再回退;④任何路径结束后当前实例非空或会话已解散,
  * 绝无中间态残留。附:★6 close 幂等与 ★7 清场逆序在切换路径(B2)重放。
+ * ★v1.7:原 A2 能力校验失败路径(capability 缺失拒绝)随能力标签机制全链退场删除
+ * (25 号修正案);阶段 A 失败路径覆盖自此为 A1/A3/A4/A5/A6。
  */
 @Timeout(30)
 class ModeSwitchAtomicityTest {
@@ -124,20 +125,6 @@ class ModeSwitchAtomicityTest {
         assertTrue(rejected.detail().contains("nope"), "detail 点名未知 id: " + rejected.detail());
         fx.oldInstanceStillTicking();
         assertEquals(SessionState.RUNNING, fx.session.state());
-    }
-
-    @Test
-    void a2MissingCapabilityIsRejectedWithDetail() throws Exception {
-        SwitchHarness harness = new SwitchHarness("fb",
-                SwitchHarness.mode("fb", 0, 100),
-                SwitchHarness.mode("base", 0, 100),
-                SwitchHarness.mode("wizard", 0, 100, Set.of("magic"), MatchModeMeta.DefaultTransition.FALLBACK));
-        Fixture fx = new Fixture(harness);
-        SwitchResult.Rejected rejected = fx.awaitRejected(
-                fx.harness.service.switchMode(fx.session.id(), sel("wizard"), Handoff.empty()));
-        assertEquals(SwitchResult.Reason.REJECTED_BY_TARGET_MODE, rejected.code());
-        assertTrue(rejected.detail().contains("magic"), "detail 列缺失标签: " + rejected.detail());
-        fx.oldInstanceStillTicking();
     }
 
     @Test

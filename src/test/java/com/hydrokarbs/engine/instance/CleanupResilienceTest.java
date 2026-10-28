@@ -156,7 +156,7 @@ class CleanupResilienceTest {
         List<String> log = new ArrayList<>();
         RuntimeException stopFailure = new RuntimeException("stop-boom");
         MatchMode.Builder builder = new MatchMode.Builder("m1")
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
         builder.addComponent("c1", new ProbeSpec(log, null));
         builder.addComponent("c2", new ProbeSpec(log, () -> {
             throw stopFailure;

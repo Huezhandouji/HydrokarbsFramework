@@ -13,7 +13,9 @@ import com.hydrokarbs.engine.session.SessionMember;
  *
  * <p>模式接入会话能力的<b>软接入</b>口(§13.7):实例组件经
  * {@code svc().self().session()} 取本视图,按类型读会话组件的强类型读口;
- * 硬依赖走 {@code MatchModeMeta#requiredCapabilities} 标签声明(A2 可用集并集,D6)。
+ * 硬依赖同样以类型表达(★v1.7,25 号修正案:原模式元数据上的字符串能力标签通道
+ * 随能力标签机制退场,改由组件 {@code requires/requiresOptional}
+ * 类型化依赖 + 装配闸表达)。
  *
  * <p><b>只读是架构纪律 + review 条款</b>(§2.8-决断四、14.29):
  * {@link #attrs()} 的只读约定为仅 get;实例组件不得写入会话组件。

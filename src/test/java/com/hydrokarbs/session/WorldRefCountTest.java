@@ -35,7 +35,6 @@ import com.hydrokarbs.bridge.world.WorldPortImpl;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.ResetStrategy;
 import com.hydrokarbs.engine.port.WorldHandle;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
@@ -689,7 +688,6 @@ class WorldRefCountTest {
         modes.register(SwitchHarness.fixedProvider(SwitchHarness.mode("late_m", 0, 100)));
         SessionServiceImpl service = new SessionServiceImpl.Builder()
                 .modes(modes)
-                .capabilities(new CapabilityRegistry())
                 .worlds(rig.port)
                 .maps(maps)
                 .configSource(id -> OfflineAssembly.cfg())

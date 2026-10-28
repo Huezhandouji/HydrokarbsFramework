@@ -122,7 +122,7 @@ class ComponentResolutionTest {
 
     private static MatchMode.Builder modeBuilder(String id) {
         return new MatchMode.Builder(id)
-                .meta(new MatchModeMeta(Set.of(), false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
     }
 
     private static MatchModeInstance create(MatchMode mode) {

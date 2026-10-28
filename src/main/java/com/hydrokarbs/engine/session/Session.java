@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -33,8 +32,7 @@ import com.hydrokarbs.engine.port.WorldHandle;
  * <p><b>★v4 会话级组件层落点(§3.8)</b>:本类持有 {@link SessionComponentRegistry}
  * (构造期随 spec 建立,<b>每会话一份、非进程级静态</b>,★27);装配动作(bind/create/
  * awake/start)由 {@code SessionServiceImpl.create} 驱动,派发经包级
- * {@link #tickSessionComponents()}(tickAll ③ 步,每 tick 必调、与实例有无无关);
- * {@link #sessionComponentCapabilities()} 是切换阶段 A2 可用集的会话侧来源(D6)。
+ * {@link #tickSessionComponents()}(tickAll ③ 步,每 tick 必调、与实例有无无关)。
  * ★ <b>会话容器不持有会话组件的状态</b>(§2.8-决断三扩展)——注册表只持描述符与实例引用。
  *
  * <p><b>状态机先行、动作后接</b>:迁移写点收敛为包级方法 {@link #transitionTo(SessionState)}
@@ -147,11 +145,6 @@ public class Session {
     /** 会话事件端口(★v4;SessionPort#events() 的实现体,订阅句柄随组件 stop 回收)。 */
     SessionEventPort eventsPort() {
         return eventsPort;
-    }
-
-    /** 全部在册会话组件的能力标签并集(A2 可用集的会话侧来源,D6;随 dissolve 消灭)。 */
-    public Set<String> sessionComponentCapabilities() {
-        return sessionComponents.capabilitiesUnion();
     }
 
     /** 当前实例(0..1;无实例或切换中间态期间为 empty)。 */

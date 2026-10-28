@@ -42,7 +42,6 @@ import com.hydrokarbs.engine.mode.MatchModeProvider;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
@@ -65,7 +64,7 @@ import com.hydrokarbs.testkit.TestComponent;
 import com.hydrokarbs.testkit.TestPlugins;
 
 /**
- * 跨插件模式可注册(★20 首建;★v1.5 显式注册收敛后以 api 面承载,离线)。
+ * 跨插件模式可注册(★20 首建;★v1.6 显式注册收敛后以 api 面承载,离线)。
  * fake 插件的工厂经 {@code MiniGameApi#registerMode} 收录后:出现在目录、可被
  * switchMode 选中、卸载即摘除且受影响会话回退(§16.2-★20 原文口径)。
  *
@@ -76,7 +75,7 @@ import com.hydrokarbs.testkit.TestPlugins;
  *       记录调用;断言目标 id 与 force 语义;注册表 {@code require} 通过佐证
  *       切换阶段 A 的目标查找不拒);</li>
  *   <li>③坏 provider(缺必需依赖 / build 抛 / 重复 id)响亮抛 + 不进注册表
- *       (§2.6 注册闸;★v1.5 起显式注册统一响亮口径——调用方可捕获,onEnable
+ *       (§2.6 注册闸;★v1.6 起显式注册统一响亮口径——调用方可捕获,onEnable
  *       注册失败 = 拒载信号;原事件通道「SEVERE + 跳过/忽略后来者」口径随
  *       ServicesManager 通道退场);</li>
  *   <li>④{@code api.unregisterMode} 目录摘除 + 受影响会话恰一次回退切换
@@ -90,7 +89,7 @@ import com.hydrokarbs.testkit.TestPlugins;
  *       「注册表被动收」,示例只住 examples/TheirPlugin;§16.2-4 禁词精神)。</li>
  * </ol>
  *
- * <p><b>★v1.5 迁移说明(24 号修正案)</b>:原 {@code ProviderServiceListener} 内核
+ * <p><b>★v1.6 迁移说明(24 号修正案)</b>:原 {@code ProviderServiceListener} 内核
  * 直调({@code ingestProvider}/{@code removeProvider}/贡献两内核)与先启补收录命题
  * 随 ServicesManager 通道退场——注册/摘除/回退编排全部迁入 {@code MiniGameApiImpl}
  * 显式面,本测试改经 api 面逐一承载既有命题(断言语义零放宽;响亮化命题见 ③)。
@@ -161,7 +160,7 @@ class ThirdPartyModeRegistrationTest {
             public MatchMode build(MatchModeConfig cfg) {
                 MatchMode.Builder builder = new MatchMode.Builder(id)
                         .mapTags(mapTags)
-                        .meta(new MatchModeMeta(Set.of(), false, 1, 16,
+                        .meta(new MatchModeMeta(false, 1, 16,
                                 MatchModeMeta.DefaultTransition.STAY));
                 int index = 1;
                 for (MatchModeComponent.Specification<?> spec : specs) {
@@ -325,7 +324,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void registeredProviderEntersCatalogAndApiView() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
@@ -347,7 +346,7 @@ class ThirdPartyModeRegistrationTest {
     void thirdPartyModeSelectableThroughApiSwitch() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
                 new MapRegistry(MapTestKit.newTemplatesRoot()),
-                new CapabilityRegistry(), new SessionEventBus(),
+                new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
 
@@ -358,7 +357,7 @@ class ThirdPartyModeRegistrationTest {
         fake.setSessions(List.of(OfflineAssembly.session("s1")));
         MiniGameApiImpl switching = new MiniGameApiImpl(fake, registry,
                 new MapRegistry(MapTestKit.newTemplatesRoot()),
-                new CapabilityRegistry(), new SessionEventBus(),
+                new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
 
         Handoff payload = Handoff.empty();
@@ -375,12 +374,12 @@ class ThirdPartyModeRegistrationTest {
         assertSame(payload, call.payload(), "交接载荷原样透传");
     }
 
-    // ── ③ 坏 provider:响亮抛 + 不进注册表(★v1.5 显式注册统一响亮口径) ──
+    // ── ③ 坏 provider:响亮抛 + 不进注册表(★v1.6 显式注册统一响亮口径) ──
 
     @Test
     void dependencyFailureIsLoudAndNotRegistered() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         MatchModeProvider bad = provider("bad_probe", Set.of("demo"),
@@ -388,7 +387,7 @@ class ThirdPartyModeRegistrationTest {
 
         ComponentDependencyException thrown = assertThrows(ComponentDependencyException.class,
                 () -> api.registerMode(TestPlugins.named("their-plugin"), bad),
-                "依赖校验失败响亮抛(★v1.5:显式注册可捕获,onEnable 失败 = 拒载信号)");
+                "依赖校验失败响亮抛(★v1.6:显式注册可捕获,onEnable 失败 = 拒载信号)");
         assertNotNull(thrown.getMessage(), "异常带 detail(引擎 verifyDependencies 既有口径)");
 
         assertThrows(NoSuchElementException.class, () -> registry.require("bad_probe"),
@@ -399,13 +398,13 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void buildFailureIsLoudAndNotRegistered() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
 
         assertThrows(IllegalStateException.class,
                 () -> api.registerMode(TestPlugins.named("their-plugin"), brokenProvider("broken_probe")),
-                "第三方工厂 build 异常原样上抛(★v1.5 响亮口径)");
+                "第三方工厂 build 异常原样上抛(★v1.6 响亮口径)");
 
         assertThrows(NoSuchElementException.class, () -> registry.require("broken_probe"));
         assertTrue(registry.all().isEmpty(), "build 失败不留半注册态");
@@ -414,7 +413,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void duplicateIdAtRegistrationIsLoudAndKeepsFirstArrival() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("first-plugin"), provider(PROBE, Set.of("first")));
@@ -433,7 +432,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterRemovesCatalogAndRedirectsAffectedSessionToFallback() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
         api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
@@ -460,7 +459,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterWithBlankFallbackDissolvesSession() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");   // R3:默认空 = 无 fallback
         var provider = TestPlugins.named("their-plugin");
         api.registerMode(provider, provider(PROBE, Set.of("demo")));
@@ -478,7 +477,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterWithUnregisteredFallbackDissolvesSession() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "ghost_mode");   // 指向未注册 id → 不可用
         var provider = TestPlugins.named("their-plugin");
         api.registerMode(provider, provider(PROBE, Set.of("demo")));
@@ -495,7 +494,7 @@ class ThirdPartyModeRegistrationTest {
         captureImplLog();                          // 回退 WARN 走 Impl 类级日志
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
         api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
@@ -512,21 +511,21 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void unregisterForeignModeIsRefusedAndUnknownIdIsNoOp() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("other-plugin"), provider(PROBE, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
 
-        // 越权:目录里有但不是本提供方注册的(★v1.5 响亮拒)
+        // 越权:目录里有但不是本提供方注册的(★v1.6 响亮拒)
         IllegalStateException refused = assertThrows(IllegalStateException.class,
                 () -> api.unregisterMode(provider, PROBE),
-                "id 属于其他提供方 → 响亮拒(★v1.5)");
+                "id 属于其他提供方 → 响亮拒(★v1.6)");
         assertTrue(refused.getMessage().contains(PROBE), "detail 点名模式 id: " + refused.getMessage());
         assertEquals(PROBE, registry.require(PROBE).id(), "越权摘除不落地");
 
-        // 未知 id:幂等 no-op(★v1.5)
+        // 未知 id:幂等 no-op(★v1.6)
         assertDoesNotThrow(() -> api.unregisterMode(provider, "never_registered"),
-                "id 不存在 → 幂等 no-op(★v1.5)");
+                "id 不存在 → 幂等 no-op(★v1.6)");
         assertTrue(registry.all().size() == 1, "no-op 不扰动目录");
     }
 
@@ -535,7 +534,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void registeredContributionsRemovedByProviderPluginKey() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> spec = new SessionProbeComponent.Spec(new ArrayList<>());
@@ -549,7 +548,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void reRegistrationReplacesContributionsWithoutGhostCollision() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> first = new SessionProbeComponent.Spec(new ArrayList<>());
@@ -574,7 +573,7 @@ class ThirdPartyModeRegistrationTest {
     void registerModeLogsDeclaredRequiredApiVersion() {
         captureImplLog();
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()), new CapabilityRegistry(),
+                new MapRegistry(MapTestKit.newTemplatesRoot()),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         MatchModeProvider demanding = new MatchModeProvider() {
             @Override
@@ -586,7 +585,7 @@ class ThirdPartyModeRegistrationTest {
             public MatchMode build(MatchModeConfig cfg) {
                 return new MatchMode.Builder(id())
                         .mapTags(Set.of("demo"))
-                        .meta(new MatchModeMeta(Set.of(), false, 1, 16,
+                        .meta(new MatchModeMeta(false, 1, 16,
                                 MatchModeMeta.DefaultTransition.STAY))
                         .build();
             }

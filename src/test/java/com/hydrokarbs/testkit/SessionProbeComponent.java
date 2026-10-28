@@ -12,8 +12,9 @@ import com.hydrokarbs.engine.port.SessionServices;
 
 /**
  * 会话级探针组件(2.6 测试基座):五钩子按序记录 + 可注入失败点(awake/start/update/
- * onEvent 抛)+ 能力标签 + start 期订阅开关 + later 登记——「注册表按声明序、无条件
+ * onEvent 抛)+ start 期订阅开关 + later 登记——「注册表按声明序、无条件
  * 广播」与 D9 隔离的度量衡。断言的是派发序与隔离语义,不是策略内容。
+ * ★v1.7:原 tagged() 能力标签工厂随标签机制退场删除(25 号修正案)。
  *
  * <p>★ 零 Bukkit import;观察包装({@link #sibling}/{@link #self}/{@link #recordLater})
  * 把受保护的服务集口开放给测试。与实例侧 {@link ProbeComponent} 分工对称。
@@ -41,13 +42,6 @@ public final class SessionProbeComponent extends SessionComponent {
     /** 带每拍回调(跨级只读等观察断言用)。 */
     public static Spec spec(List<String> log, Consumer<SessionProbeComponent> onUpdate) {
         return new Spec(log).onUpdate(onUpdate);
-    }
-
-    /** 带能力标签(★32:A2 可用集并集断言)。 */
-    public static Spec tagged(List<String> log, String... tags) {
-        Spec spec = new Spec(log);
-        spec.capabilities(tags);
-        return spec;
     }
 
     /** 会话级探针描述符(失败点与行为全可配;默认只记录钩子)。 */

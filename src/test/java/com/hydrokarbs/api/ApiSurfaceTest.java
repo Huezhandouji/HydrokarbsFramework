@@ -80,7 +80,7 @@ import com.hydrokarbs.api.view.SessionInfo;
  * <ul>
  *   <li>{@code api/**}——MiniGameApi、EventSubscription、SessionRecipe、
  *       SessionEventView 八 record、view 三快照
- *       (07 §7.1/§7.2;SessionInfo 定名裁决见其 javadoc;★v1.5:
+ *       (07 §7.1/§7.2;SessionInfo 定名裁决见其 javadoc;★v1.6:
  *       原 {@code SessionComponentProvider} SPI 随 ServicesManager 提供方通道
  *       退场删除,消费方迁移 {@code MiniGameApi#registerSessionComponents});</li>
  *   <li>{@code engine.mode/**}——MatchMode(嵌套 Builder/ComponentEntry)、
@@ -137,7 +137,7 @@ class ApiSurfaceTest {
 
     /** 白名单逐包清单(出处见类注;顺序 = 注释块序,无语义)。 */
     private static final List<Class<?>> WHITELIST = List.of(
-            // ── api/**(07 §7.1 全部公开类型;★v1.5 起 SessionComponentProvider 出册) ──
+            // ── api/**(07 §7.1 全部公开类型;★v1.6 起 SessionComponentProvider 出册) ──
             MiniGameApi.class, EventSubscription.class, SessionRecipe.class,
             SessionEventView.class,
             SessionEventView.Created.class, SessionEventView.MemberJoined.class,
@@ -221,7 +221,7 @@ class ApiSurfaceTest {
             assertReferencedTypesAllowed(where, array.getGenericComponentType());
             return;
         }
-        // ★v1.5 技术修正(命题不变、非放宽):通配符/类型变量无「类型名」可判,
+        // ★v1.6 技术修正(命题不变、非放宽):通配符/类型变量无「类型名」可判,
         // 递归其上界——上界引用类型仍须过白名单(registerSessionComponents 的
         // List<SessionComponent.Specification<?>> 是首个带通配符实参的签名)。
         if (type instanceof java.lang.reflect.WildcardType wildcard) {
@@ -260,19 +260,20 @@ class ApiSurfaceTest {
 
     // ── 断言 ②:白名单公开签名快照只增不改(★44 后半;首建基线 2026-10-25) ──
 
-    /** 首建快照文本(7.5,2026-10-25;★v1.5 更新:增 MiniGameApi 四行、删 SessionComponentProvider 两行;
+    /** 首建快照文本(7.5,2026-10-25;★v1.6 更新:增 MiniGameApi 四行、删 SessionComponentProvider 两行;
+     *  ★v1.7 更新:删能力标签两法 + MatchModeInfo/MatchModeMeta 的所需能力分量 +
+     *  SessionComponent$Specification$Snapshot#capabilities 与 Specification#capabilities 共 6 行
+     *  (25 号修正案:标签机制退场,快照合法重录);
      *  由 {@code snapshotLines()} 同算法生成后粘贴;须先于 BASELINE 声明)。 */
     private static final String BASELINE_TEXT = """
 com.hydrokarbs.api.EventSubscription#close():void
 com.hydrokarbs.api.MiniGameApi#API_VERSION:int
-com.hydrokarbs.api.MiniGameApi#capabilities():java.util.Set
 com.hydrokarbs.api.MiniGameApi#createSession(com.hydrokarbs.api.SessionRecipe):com.hydrokarbs.api.view.SessionInfo
 com.hydrokarbs.api.MiniGameApi#joinSession(java.lang.String,java.util.UUID):com.hydrokarbs.engine.session.JoinResult
 com.hydrokarbs.api.MiniGameApi#leaveSession(java.util.UUID,com.hydrokarbs.engine.session.LeaveReason):void
 com.hydrokarbs.api.MiniGameApi#maps():java.util.List
 com.hydrokarbs.api.MiniGameApi#mode(java.lang.String):java.util.Optional
 com.hydrokarbs.api.MiniGameApi#modes():java.util.List
-com.hydrokarbs.api.MiniGameApi#registerCapability(org.bukkit.plugin.Plugin,java.lang.String):void
 com.hydrokarbs.api.MiniGameApi#registerMap(org.bukkit.plugin.Plugin,com.hydrokarbs.map.MapDefinition):com.hydrokarbs.api.view.MapInfo
 com.hydrokarbs.api.MiniGameApi#registerMode(org.bukkit.plugin.Plugin,com.hydrokarbs.engine.mode.MatchModeProvider):com.hydrokarbs.api.view.MatchModeInfo
 com.hydrokarbs.api.MiniGameApi#registerSessionComponents(org.bukkit.plugin.Plugin,java.util.List):void
@@ -364,7 +365,6 @@ com.hydrokarbs.api.view.MatchModeInfo#mapTags():java.util.Set
 com.hydrokarbs.api.view.MatchModeInfo#maxParticipants():int
 com.hydrokarbs.api.view.MatchModeInfo#minParticipants():int
 com.hydrokarbs.api.view.MatchModeInfo#recordsHistory():boolean
-com.hydrokarbs.api.view.MatchModeInfo#requiredCapabilities():java.util.Set
 com.hydrokarbs.api.view.MatchModeInfo#toString():java.lang.String
 com.hydrokarbs.api.view.SessionInfo#equals(java.lang.Object):boolean
 com.hydrokarbs.api.view.SessionInfo#hashCode():int
@@ -484,13 +484,11 @@ com.hydrokarbs.engine.component.SessionComponent#start():void
 com.hydrokarbs.engine.component.SessionComponent#stop():void
 com.hydrokarbs.engine.component.SessionComponent#update():void
 com.hydrokarbs.engine.component.SessionComponent$Factory#create(java.lang.String,com.hydrokarbs.engine.port.SessionServices):com.hydrokarbs.engine.component.SessionComponent
-com.hydrokarbs.engine.component.SessionComponent$Specification#capabilities([Ljava.lang.String;):com.hydrokarbs.engine.component.SessionComponent$Specification
 com.hydrokarbs.engine.component.SessionComponent$Specification#create(java.lang.String,com.hydrokarbs.engine.port.SessionServices):com.hydrokarbs.engine.component.SessionComponent
 com.hydrokarbs.engine.component.SessionComponent$Specification#freeze():com.hydrokarbs.engine.component.SessionComponent$Specification$Snapshot
 com.hydrokarbs.engine.component.SessionComponent$Specification#providedType():java.lang.Class
 com.hydrokarbs.engine.component.SessionComponent$Specification#requires(java.lang.Class):com.hydrokarbs.engine.component.SessionComponent$Specification
 com.hydrokarbs.engine.component.SessionComponent$Specification#requiresOptional(java.lang.Class):com.hydrokarbs.engine.component.SessionComponent$Specification
-com.hydrokarbs.engine.component.SessionComponent$Specification$Snapshot#capabilities():java.util.Set
 com.hydrokarbs.engine.component.SessionComponent$Specification$Snapshot#descriptorLabel():java.lang.String
 com.hydrokarbs.engine.component.SessionComponent$Specification$Snapshot#equals(java.lang.Object):boolean
 com.hydrokarbs.engine.component.SessionComponent$Specification$Snapshot#factory():com.hydrokarbs.engine.component.SessionComponent$Factory
@@ -661,7 +659,6 @@ com.hydrokarbs.engine.mode.MatchModeMeta#hashCode():int
 com.hydrokarbs.engine.mode.MatchModeMeta#maxParticipants():int
 com.hydrokarbs.engine.mode.MatchModeMeta#minParticipants():int
 com.hydrokarbs.engine.mode.MatchModeMeta#recordsHistory():boolean
-com.hydrokarbs.engine.mode.MatchModeMeta#requiredCapabilities():java.util.Set
 com.hydrokarbs.engine.mode.MatchModeMeta#toString():java.lang.String
 com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#FALLBACK:com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
 com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#ROTATION:com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition

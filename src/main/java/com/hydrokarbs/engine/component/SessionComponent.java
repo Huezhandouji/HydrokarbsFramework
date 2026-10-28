@@ -3,10 +3,8 @@ package com.hydrokarbs.engine.component;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.port.SessionServices;
@@ -105,10 +103,10 @@ public abstract class SessionComponent {
     public void stop() {
     }
 
-    // ── 装配期描述符(照抄 MatchModeComponent.Specification;★v4 增 capabilities) ──
+    // ── 装配期描述符(照抄 MatchModeComponent.Specification;★v1.7 起 capabilities 随标签机制退场) ──
 
     /**
-     * 会话级装配描述符:声明「这个组件怎么造」——工厂、依赖类型、供给面、能力标签
+     * 会话级装配描述符:声明「这个组件怎么造」——工厂、依赖类型、供给面
      * (§2.5.1;03 §3.8)。
      *
      * <p>{@link #freeze()} 产出不可变 {@link Snapshot},此后声明方法拒改——
@@ -122,7 +120,6 @@ public abstract class SessionComponent {
         private final String descriptorLabel;
         private final List<Class<? extends SessionComponent>> requiredTypes = new ArrayList<>();
         private final List<Class<? extends SessionComponent>> optionalTypes = new ArrayList<>();
-        private final Set<String> capabilities = new LinkedHashSet<>();
         private volatile boolean frozen;
 
         /** 诊断标签(只进装配期异常文案,无行为分支读它)。 */
@@ -149,23 +146,6 @@ public abstract class SessionComponent {
                 throw new IllegalArgumentException(descriptorLabel + ": 类型 " + type.getName() + " 已声明为必需依赖,不得再声明为可选");
             }
             optionalTypes.add(type);
-            return this;
-        }
-
-        /**
-         * ★v4-D6:本组件注册的能力标签(装配时进<b>本会话</b>标签集,随 dissolve 摘除;
-         * 切换阶段 A2 的可用集 = 进程级标签 ∪ 本会话会话组件标签,§3.2-A2)。
-         * 词汇由提供方定义,引擎零字面量(沿用 v3.1 字符串标签口径)。
-         */
-        public final Specification<T> capabilities(String... tags) {
-            Objects.requireNonNull(tags, "tags");
-            assertMutable();
-            for (String tag : tags) {
-                if (tag == null || tag.isBlank()) {
-                    throw new IllegalArgumentException(descriptorLabel + ": 能力标签不可为空白串");
-                }
-                capabilities.add(tag);
-            }
             return this;
         }
 
@@ -197,8 +177,7 @@ public abstract class SessionComponent {
             frozen = true;
             Factory<T> factory = this::create;   // 经显式类型的局部变量适配快照的通配符工厂
             return new Snapshot(descriptorLabel, factory, providedType(),
-                    List.copyOf(requiredTypes), List.copyOf(optionalTypes),
-                    Set.copyOf(capabilities));
+                    List.copyOf(requiredTypes), List.copyOf(optionalTypes));
         }
 
         /** 抽象创建:唯一创建点(会话装配期由注册表调用,id 与 svc 成对交给它)。 */
@@ -210,12 +189,11 @@ public abstract class SessionComponent {
             }
         }
 
-        /** 不可变快照:标签 + 工厂 + 供给面 + 依赖声明 + 能力标签。注册表只留快照,不持描述符对象的可变状态。 */
+        /** 不可变快照:标签 + 工厂 + 供给面 + 依赖声明。注册表只留快照,不持描述符对象的可变状态。 */
         public record Snapshot(String descriptorLabel, Factory<?> factory,
                                Class<? extends SessionComponent> providedType,
                                List<Class<? extends SessionComponent>> requiredTypes,
-                               List<Class<? extends SessionComponent>> optionalTypes,
-                               Set<String> capabilities) {
+                               List<Class<? extends SessionComponent>> optionalTypes) {
         }
     }
 

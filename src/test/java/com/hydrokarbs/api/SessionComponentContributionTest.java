@@ -38,7 +38,7 @@ import com.hydrokarbs.testkit.TestPlugins;
  * <ul>
  *   <li>★51(通道一·全局):贡献经 {@code api.registerSessionComponents} 显式注册后
  *       新会话合并(合并序 = 注册序 → recipe.extra);坏贡献干跑校验失败<b>响亮上抛</b>
- *       给调用方(★v1.5:显式注册可捕获,原事件通道「SEVERE 拒收录、会话照常」口径
+ *       给调用方(★v1.6:显式注册可捕获,原事件通道「SEVERE 拒收录、会话照常」口径
  *       随通道退场);摘除(disable 兜底同款路径)后新会话不再合并;</li>
  *   <li>★52(通道二·单次):recipe.extra 进表、随 dissolve 全灭;查重/缺依赖
  *       createSession 响亮拒绝(引擎装配闸,不写第二套校验);</li>
@@ -93,7 +93,7 @@ class SessionComponentContributionTest {
         // 合并序(注册序 → recipe.extra):假服务记录 spec 断言输入面
         SpecRecordingService recorder = new SpecRecordingService();
         MiniGameApiImpl recording = new MiniGameApiImpl(recorder, harness.modes, harness.maps,
-                harness.capabilities, harness.globalEvents, contributions, Runnable::run, () -> "");
+                harness.globalEvents, contributions, Runnable::run, () -> "");
         recording.createSession(SessionRecipe.of(MODE_ID, null));
         SessionProbeComponent.Spec extraSpec = new SessionProbeComponent.Spec(new ArrayList<>());
         recording.createSession(new SessionRecipe(MODE_ID, Optional.empty(), List.of(),
@@ -119,7 +119,7 @@ class SessionComponentContributionTest {
         ComponentDependencyException thrown = assertThrows(ComponentDependencyException.class,
                 () -> harness.api.registerSessionComponents(TestPlugins.named("bad-plugin"),
                         List.<SessionComponent.Specification<?>>of(bad)),
-                "坏贡献响亮上抛(★v1.5:显式注册可捕获,onEnable 失败 = 拒载信号)");
+                "坏贡献响亮上抛(★v1.6:显式注册可捕获,onEnable 失败 = 拒载信号)");
         assertTrue(thrown.getMessage().contains("缺必需依赖"), "点名缺失类型: " + thrown.getMessage());
         assertTrue(harness.contributions.isEmpty(), "贡献不进默认面(失败不留半收录态)");
         assertDoesNotThrow(() -> harness.api.createSession(SessionRecipe.of(MODE_ID, null)),

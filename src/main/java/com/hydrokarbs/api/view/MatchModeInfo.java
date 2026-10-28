@@ -15,7 +15,6 @@ import org.bukkit.Material;
  *       不得直接喂 MiniMessage,序列化发生在框架侧对模式声明文案的转换点);</li>
  *   <li>{@code icon}:Bukkit {@link Material} 原样;未声明时为 {@code null}
  *       ({@code MatchMode#icon()} 既有口径:消费方自理);</li>
- *   <li>{@code requiredCapabilities}:字符串能力标签(v3.1;引擎零具体标签词汇);</li>
  *   <li>{@code defaultTransition}:枚举存 {@code name()} 字符串——冻结面不被引擎枚举
  *       演进绑死(拒绝码收缩先例,§0.5.3 末行)。</li>
  * </ul>
@@ -29,13 +28,11 @@ import org.bukkit.Material;
  * A9 三限制:build 后不可变,07 §7.2)。
  */
 public record MatchModeInfo(String id, String displayName, List<String> description,
-                            Material icon, Set<String> mapTags,
-                            Set<String> requiredCapabilities, boolean recordsHistory,
+                            Material icon, Set<String> mapTags, boolean recordsHistory,
                             int minParticipants, int maxParticipants, String defaultTransition) {
 
     public MatchModeInfo {
         description = List.copyOf(description);
         mapTags = Set.copyOf(mapTags);
-        requiredCapabilities = Set.copyOf(requiredCapabilities);
     }
 }

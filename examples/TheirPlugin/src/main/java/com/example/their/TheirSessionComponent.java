@@ -9,7 +9,7 @@ import com.hydrokarbs.engine.port.SessionServices;
 
 /**
  * 第三方会话组件贡献(★v1.1-D14 通道一的贡献物样例;7.5 施工文档步骤 10;
- * ★v1.5 起经 {@code MiniGameApi#registerSessionComponents} 显式注册):
+ * ★v1.6 起经 {@code MiniGameApi#registerSessionComponents} 显式注册):
  * 宿主级会话策略的最小占位——真实策略组件在此实现自定义重连/宽限/准入记账等
  * (07 §7.3「适用」行);本样例只演示贡献声明形状与纪律。
  *

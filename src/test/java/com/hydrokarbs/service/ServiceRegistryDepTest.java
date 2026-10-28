@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import com.hydrokarbs.engine.service.ServiceDependencyException;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★35 装配期依赖校验(1.6「测试与验收」表;18 号修正案 §7)。
@@ -40,7 +39,7 @@ class ServiceRegistryDepTest {
     }
 
     private static ServiceRegistry newRegistry() {
-        return new ServiceRegistry(new CapabilityRegistry());
+        return new ServiceRegistry();
     }
 
     /** 缺必需依赖 → ServiceDependencyException,消息点名双方(声明方 + 缺失类型)。 */

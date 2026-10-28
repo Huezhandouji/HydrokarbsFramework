@@ -2,7 +2,6 @@ package com.hydrokarbs.api;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -31,7 +30,7 @@ import com.hydrokarbs.map.MapDefinition;
  *
  * <p><b>7.5 增量(2026-10-25,G1 闸门;API_VERSION = 3,16 方法)</b>:
  * 成员操作(joinSession/leaveSession,D2)、会话事件订阅(subscribeSessionEvents,
- * D3)、能力标签(registerCapability/capabilities,D4)、会话配方建会话
+ * D3)、能力标签(D4,★v1.7 退场)、会话配方建会话
  * (createSession(SessionRecipe),D14 通道二)、地图注册(registerMap/
  * unregisterMap,★v1.2)——只增不改,v1 面 8 方法签名一字不动(★44
  * {@code ApiSurfaceTest} 白名单与签名快照双断言守卫;14.35~14.39 跨 jar 纪律见各方法注)。
@@ -49,7 +48,7 @@ import com.hydrokarbs.map.MapDefinition;
  * {@link #createSession(SessionRecipe)} 唯一形态;地图注册通道(★v1.2)维持不动。
  * 「只增不改」纪律由 15 方法清单续行守卫(★19/★44,冻结测试与版本常量随本裁决合法更新)。
  *
- * <p><b>★v1.5 显式注册收敛(2026-10-27;API_VERSION = 5,冻结面计数 15 → 19 方法 =
+ * <p><b>★v1.6 显式注册收敛(2026-10-27;API_VERSION = 5,冻结面计数 15 → 19 方法 =
  * 查询 3 + 控制 1 + 成员 2 + 订阅 1 + 能力 2 + 建会话 1 + 地图 2 +
  * <b>模式显式注册 2 + 会话组件显式注册 2</b> + 目录 3;24 号修正案裁决)</b>:
  * 模式与会话组件改经本面显式注册——跨插件 ServicesManager 提供方通道
@@ -59,9 +58,20 @@ import com.hydrokarbs.map.MapDefinition;
  * {@code SessionComponentProvider} SPI 接口删除(破坏性变更,消费方迁移
  * {@link #registerSessionComponents});{@code MatchModeProvider} 保留为
  * {@link #registerMode} 的载荷类型(本 jar ServiceLoader 半边出厂模式不动)。
- * 提供方插件 disable 的框架侧兜底(14.38)对四族注册物(能力/模式/地图/贡献)
- * 继续有效,消费方 onDisable 显式反注册仍是纪律。「只增不改」纪律由 19 方法清单
- * 续行守卫(★19/★44,冻结测试与版本常量随本裁决合法更新)。
+ * 提供方插件 disable 的框架侧兜底(14.38)对注册物各族继续有效,消费方
+ * onDisable 显式反注册仍是纪律。「只增不改」纪律由 19 方法清单续行守卫
+ * (★19/★44,冻结测试与版本常量随本裁决合法更新)。
+ *
+ * <p><b>★v1.7 能力标签机制退场(2026-10-27;API_VERSION = 6,冻结面计数 19 → 17 方法 =
+ * 查询 3 + 控制 1 + 成员 2 + 订阅 1 + 建会话 1 + 地图 2 + 模式显式注册 2 +
+ * 会话组件显式注册 2 + 目录 3;25 号修正案裁决)</b>:
+ * ★v1.1-D4 的能力标签两法与全链字符串能力标签机制
+ * (注册表/A2 校验/模式与快照分量)删除——字符串声明不严谨;外部能力改由
+ * <b>会话组件桥接</b>表达:桥接会话组件经 {@link #registerSessionComponents}/
+ * {@link SessionRecipe} 进会话,消费方组件 {@code requires/requiresOptional}
+ * 类型化声明,装配期响亮、运行期 quarantine(机制在框架内既有,本裁决删的是
+ * 叠在其上的字符串平行层)。「只增不改」纪律由 17 方法清单续行守卫(★19/★44,
+ * 冻结测试与版本常量随本裁决合法更新)。
  *
  * <p><b>A9 三限制(§0.2-A9/§7.2)</b>:①聚合根 {@code build()} 后不可变;
  * ②第三方不能给已注册模式追加组件或改组件表;③要「变体」就注册一个新 id——
@@ -73,8 +83,7 @@ import com.hydrokarbs.map.MapDefinition;
  *   <caption>线程契约</caption>
  *   <tr><th>方法</th><th>线程</th><th>依据</th></tr>
  *   <tr><td>sessionOf/session/sessions/modes/maps/mode/createSession(recipe)/
- *       joinSession/leaveSession/registerCapability/capabilities/
- *       registerMap/unregisterMap/registerMode/unregisterMode/
+ *       joinSession/leaveSession/registerMap/unregisterMap/registerMode/unregisterMode/
  *       registerSessionComponents/unregisterSessionComponents</td>
  *       <td>主线程调用(同步返回快照/结果)</td>
  *       <td>会话/注册表结构非线程安全(§10.5;Bukkit 事件主线程派发)</td></tr>
@@ -93,14 +102,15 @@ public interface MiniGameApi {
      * v1.2 = 3(地图注册通道);v1.3 维持 3(战绩面悬置注,不改任何签名);
      * v1.4 = 4(两参 {@code createSession} 重载删除——建会话公共面仅剩
      * {@link #createSession(SessionRecipe)} 形态;地图注册通道维持);
-     * v1.5 = 5(显式注册收敛:模式/会话组件经 {@link #registerMode}/
+     * v1.6 = 5(显式注册收敛:模式/会话组件经 {@link #registerMode}/
      * {@link #registerSessionComponents} 注册,ServicesManager 提供方通道与
-     * {@code SessionComponentProvider} SPI 删除)。
+     * {@code SessionComponentProvider} SPI 删除);
+     * v1.7 = 6(能力标签机制退场:外部能力 = 会话组件桥接,25 号修正案裁决)。
      * 消费方 {@code onEnable} <b>首行</b>检查
      * {@code api == null || api.API_VERSION < REQUIRED} → SEVERE +
      * {@code setEnabled(false)}(拒载不崩服,14.36);框架 onEnable 日志输出版本。
      */
-    int API_VERSION = 5;
+    int API_VERSION = 6;
 
     // ── 查询(不可变快照;现取不缓存,14.31 同款纪律) ────────────────────────
 
@@ -175,20 +185,6 @@ public interface MiniGameApi {
      */
     EventSubscription subscribeSessionEvents(Consumer<SessionEventView> handler);
 
-    // ── 能力标签(★v1.1-D4) ─────────────────────────────────────────────────
-
-    /**
-     * 注册能力标签(提供方 = 本插件,如角色/经济适配;★32 跨 jar 侧正式化,D4)。
-     * 幂等(重复注册无副作用);标签空白响亮抛(引擎既有校验);
-     * <b>提供方插件 disable 时自动摘除</b>(D8;框架侧 {@code PluginDisableEvent}
-     * 兜底,14.38——消费方无需自建善后,但 {@code onDisable} 显式反注册仍是纪律)。
-     * 主线程调用。
-     */
-    void registerCapability(org.bukkit.plugin.Plugin provider, String tag);
-
-    /** 当前全部可用能力标签快照(引擎机制件的只读面;含服务/L1 侧注册的标签)。主线程调用。 */
-    Set<String> capabilities();
-
     // ── 地图注册(★v1.2;★54) ───────────────────────────────────────────────
 
     /**
@@ -208,10 +204,10 @@ public interface MiniGameApi {
      */
     void unregisterMap(org.bukkit.plugin.Plugin provider, String mapId);
 
-    // ── 模式显式注册(★v1.5;24 号修正案:ServicesManager 提供方通道退场) ──
+    // ── 模式显式注册(★v1.6;24 号修正案:ServicesManager 提供方通道退场) ──
 
     /**
-     * 注册模式工厂(★v1.5 显式注册通道;07 §7.2 表「第三方注册模式」行的本面落点)。
+     * 注册模式工厂(★v1.6 显式注册通道;07 §7.2 表「第三方注册模式」行的本面落点)。
      * <b>注册工厂,不是注册成品</b>(§13.4):{@link MatchModeProvider} 交声明
      * 不交实例——聚合根由框架以自己的配置源 {@code build(cfg)} 产出(modes/&lt;id&gt;.yml
      * 的生命周期归框架,§10.2;工厂不持成品状态),注册闸
@@ -231,7 +227,7 @@ public interface MiniGameApi {
     MatchModeInfo registerMode(org.bukkit.plugin.Plugin provider, MatchModeProvider factory);
 
     /**
-     * 摘除本提供方注册的一个模式(★v1.5)。归属簿记在框架侧:只准摘自己注册的
+     * 摘除本提供方注册的一个模式(★v1.6)。归属簿记在框架侧:只准摘自己注册的
      * id——id 属于其他提供方(含本 jar 出厂模式)→ {@code IllegalStateException}
      * 响亮拒;id 不存在 → 幂等 no-op。摘除后执行<b>摘除回退编排</b>(§13.4/§3.2
      * 二级):逐存活会话当前模式 ∈ 被摘集——{@code session.fallback-mode} 已配置且
@@ -241,10 +237,10 @@ public interface MiniGameApi {
      */
     void unregisterMode(org.bukkit.plugin.Plugin provider, String modeId);
 
-    // ── 会话组件显式注册(★v1.5;D14 通道一的显式面) ─────────────────────
+    // ── 会话组件显式注册(★v1.6;D14 通道一的显式面) ─────────────────────
 
     /**
-     * 注册会话组件贡献(★v1.5 显式注册通道;D14 通道一,07 §7.3「受限开放」):
+     * 注册会话组件贡献(★v1.6 显式注册通道;D14 通道一,07 §7.3「受限开放」):
      * 提供宿主级会话策略(自定义重连/宽限/准入记账等),<b>模式仍无权贡献</b>
      * (v4-D4 不变)、无运行期增删(贡献只发生在会话创建时,装配点唯一不变)。
      * 干跑合并校验(组件 id 查重/必需依赖可满足)失败<b>响亮上抛</b>给调用方
@@ -257,14 +253,14 @@ public interface MiniGameApi {
                                    List<SessionComponent.Specification<?>> specs);
 
     /**
-     * 摘除本提供方的全部会话组件贡献(★v1.5;幂等——未注册 = no-op):后续会话
+     * 摘除本提供方的全部会话组件贡献(★v1.6;幂等——未注册 = no-op):后续会话
      * 不再合并;已装配会话不受影响(无运行期拆卸,随 dissolve 自然消亡,D14)。
      * 主线程调用。
      */
     void unregisterSessionComponents(org.bukkit.plugin.Plugin provider);
 
     // ── 目录(顺序 = 注册序,不排序不过滤——14.21「大厅特判」反弹规避) ─────
-    //    第三方模式经 registerMode 显式注册(★v1.5;原 ServicesManager 收录口径退场)
+    //    第三方模式经 registerMode 显式注册(★v1.6;原 ServicesManager 收录口径退场)
     //    入目录后服主经本组方法可见,与其他模式同列、无特判(§7.2/§13.4;框架不设
     //    出厂模式,21-D3)。
 

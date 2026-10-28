@@ -34,7 +34,6 @@ import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.PlatformPort;
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionService;
@@ -55,7 +54,7 @@ import com.hydrokarbs.util.Threads;
  * 装配语句,超一屏抽私有分段 helper;③命名不叫 {@code Bootstrapper}。
  *
  * <p><b>装配内容</b>:配置装载与模式双发现(装载时序不变式:saveDefaults 先行 →
- * loadAll → discover)、能力标签、世界端口(模板复制/引用计数/副本处置,§3.7)、
+ * loadAll → discover)、世界端口(模板复制/引用计数/副本处置,§3.7)、
  * 会话服务(两阶段切换/三级回退;平台触点全部收敛为注入函数)、进程级服务
  * (GlobalLedger/GlobalBoard)、全局节拍、会话入口监听、第三方模式收录/摘除监听
  * (ServicesManager 半边,7.2)与 Brigadier 命令、公共 API
@@ -103,7 +102,6 @@ public final class HydrokarbsAssembly {
         var modeRegistry = new MatchModeRegistry(configRepository::modeConfig);
         modeRegistry.discover();                               // ④ 模式双发现(0 个模式属正常)
 
-        var capabilities = new CapabilityRegistry();           // ⑤ 能力标签(机制件;切换阶段 A2 消费)
         ConfigView cfg = configRepository;                     // ⑥ 惰性只读配置面
 
         // ── 世界端口(模板根 = 数据目录 maps/templates,§15.2;副本根 = 服务器世界容器;
@@ -122,7 +120,6 @@ public final class HydrokarbsAssembly {
         var sessionEvents = new SessionEventBus();             // ⑨ 服务订阅面汇聚点(D3 镜像目的地)
         var sessionSvc = new SessionServiceImpl.Builder()
                 .modes(modeRegistry)
-                .capabilities(capabilities)
                 .worlds(worldPort)
                 .maps(configRepository.maps())
                 .configSource(configRepository::modeConfig)
@@ -137,16 +134,14 @@ public final class HydrokarbsAssembly {
                 .build();                                      // ⑧
 
         var contributions = new SessionComponentContributionRegistry();   // D14 收录表(进程级)
-        var services = new ServiceRegistry(capabilities, plugin, cfg);
+        var services = new ServiceRegistry(plugin, cfg);
         services.install(ServiceSpec.of("global-ledger", GlobalLedger.class,
                         env -> new GlobalLedger(sessionEvents, sessionSvc, session -> Map.of()))
-                .capabilities("global-ledger")
                 .build());
         services.install(ServiceSpec.of("global-board", GlobalBoard.class,
                         env -> new GlobalBoard(sessionEvents))
-                .capabilities("global-board")
                 .build());
-        services.seal();                                       // ⑩ 校验 + 拓扑 + 启动 + 标签
+        services.seal();                                       // ⑩ 校验 + 拓扑 + 启动
 
         var ticker = new EngineTicker(plugin, sessionSvc);     // ⑪ 全局节拍(周期读配置)
         ticker.start(cfg.get("engine.tick-period", 1));
@@ -156,15 +151,15 @@ public final class HydrokarbsAssembly {
         MatchCommand.register(plugin, sessionSvc, modeRegistry);                  // ⑬ Brigadier 主命令
 
         // ⑭ 公共 API 注册(ServicesManager 同一机制,ServicePriority.Normal——§7.2 表;
-        //    薄委托实现,主线程回程口 = Threads::runOnMain;★v1.5 冻结面 = 19 方法;
+        //    薄委托实现,主线程回程口 = Threads::runOnMain;★v1.7 冻结面 = 17 方法;
         //    fallbackModeId 惰性读 session.fallback-mode——摘除回退编排的配置源,§14.21)
         var miniGameApi = new MiniGameApiImpl(sessionSvc, modeRegistry,
-                configRepository.maps(), capabilities, sessionEvents, contributions,
+                configRepository.maps(), sessionEvents, contributions,
                 Threads::runOnMain, () -> cfg.get("session.fallback-mode", ""));
         plugin.getServer().getServicesManager()
                 .register(MiniGameApi.class, miniGameApi, plugin, ServicePriority.Normal);
-        // ⑭b 插件卸载兜底监听(14.38/D8/★v1.2/★v1.5):按提供方摘能力标签/显式模式/
-        //     注册式地图/贡献(模式摘除带会话回退编排)
+        // ⑭b 插件卸载兜底监听(14.38/★v1.2/★v1.6):按提供方摘显式模式/
+        //     注册式地图/贡献(模式摘除带会话回退编排;★v1.7 起能力标签块随机制退场)
         plugin.getServer().getPluginManager().registerEvents(
                 new ProviderUnloadListener(miniGameApi), plugin);
 
@@ -180,7 +175,7 @@ public final class HydrokarbsAssembly {
         for (var session : ctx.sessions().all()) {
             ctx.sessions().dissolve(session.id(), DissolveReason.SHUTDOWN);   // §12.2 关停驱动
         }
-        ctx.services().shutdown();      // 逆序 safeStop + 幂等 + 摘能力标签(★38)
+        ctx.services().shutdown();      // 逆序 safeStop + 幂等(★38)
         ctx.worldIo().shutdown();       // 世界 IO 执行器收口(已提交任务放行完成,不阻塞等待)
         Threads.shutdown();
     }

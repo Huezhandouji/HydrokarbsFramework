@@ -13,6 +13,7 @@
 > ★v1.4(API 面收敛与地图注册单通道,2026-10-27):①两参 `createSession(String, String)` 重载删除(`SessionRecipe` 重载为公共 API 建会话唯一形态,API_VERSION 3→4、冻结面 16→15 方法);②文件式地图装载整链退场(地图仅经 `registerMap` 注册)——受影响子阶段与交付顺序约束见本文 **§12**;变更全文见 `../22-v1.4修正案-API面收敛与地图注册单通道.md`(变更指示,历史存档,非现行),决策记录见 `../docs/adr/0010-api-surface-consolidation.md`;新增验收为 §16.2 的 **★56~★57**(首建于 7.1/7.5)。
 > ★v1.5(REUSE_DIRTY 副本随会话解散销毁,2026-10-27):世界副本的**复用窗口 = 会话生命周期**——会话解散经 `WorldPort` 新增第三方法 `discardSession(SessionId)` 销毁该会话名下全部副本(三类覆盖:切换离开保留的目录/在用句柄/迟到 in-flight;★58)——受影响子阶段与交付顺序约束见本文 **§13**;变更全文见 `../23-v1.5修正案-REUSE_DIRTY副本随会话解散销毁.md`(变更指示,现行,非历史存档),决策记录见 `../docs/adr/0011-reuse-dirty-copy-dispose-on-dissolve.md`。
 > ★v1.6(显式注册收敛,2026-10-27):模式与会话组件的注册从 ServicesManager 提供方通道(`ServiceRegisterEvent`/`ServiceUnregisterEvent` 动态收录/摘除)改为 `MiniGameApi` **显式注册四法**(`registerMode(Plugin, MatchModeProvider)` 响亮闸 / `unregisterMode(Plugin, modeId)` 只摘自己的 id + 摘除回退编排:fallback-mode force 切换或 FALLBACK_DISSOLVE / `registerSessionComponents(Plugin, specs)` 响亮抛干跑校验 / `unregisterSessionComponents(Plugin)` 幂等;API_VERSION 4→5,冻结面 15→19 方法)——`SessionComponentProvider` SPI 与 `ProviderServiceListener` 删除,`MatchModeRegistry#discover()` 只剩 ServiceLoader 本 jar 半边,注册时序反转 = 第三方必须 `depend` 框架、`load(MiniGameApi)` 后显式登记(「先启补收录」退役),disable 兜底四族(ProviderUnloadListener;★59)——受影响子阶段与交付顺序约束见本文 **§14**;变更全文见 `../24-v1.6修正案-API面显式注册模式与会话组件.md`(变更指示,现行,非历史存档),决策记录见 `../docs/adr/0012-explicit-api-registration.md`。
+> ★v1.7(能力标签机制全链退场,2026-10-27;用户裁决:字符串契约不严谨):字符串能力标签平行层整体退役——`CapabilityRegistry`、切换 A2 能力校验、`MiniGameApi#registerCapability`/`capabilities` 两法(API_VERSION 5→6,冻结面 19→17 方法)、`MatchModeMeta.requiredCapabilities`(Builder 声明语言变更)、`MatchModeInfo` 快照分量、`SessionComponent.Specification#capabilities`、`ServiceSpec.capabilities` 与 seal/shutdown 两端注册、`ProviderUnloadListener` 能力块(兜底四族收敛三族)、`capabilityClaims` 簿记;**外部能力新形态 = 会话组件桥接**:提供方(或宿主自持防腐层)经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接组件,消费方组件 `requires`/`requiresOptional` 声明依赖,装配期响亮、运行期 quarantine;软依赖由 `requiresOptional` 独自承载(机制已在框架内,非新增;★21/★60);**语义位移**:能力校验从「每次切换重查(进程级)」改为「创建时绑定 + 运行期降级/quarantine」——provider 摘除只影响后续会话,存量会话由桥接组件自身降级承接(D14 既有口径);冻结测试合法更新(FROZEN 17 行、BASELINE 重录、API_VERSION=6);**★32 废止、新增 ★60**(§4)——受影响子阶段与交付顺序约束见本文 **§15**;变更全文见 `../25 号修正案`(v1.7 能力标签机制退场;正文落盘前以本横幅与 §15 为准)。
 
 ## 0. 使用方法
 
@@ -68,9 +69,9 @@
 5. **陷阱前置**:动工前通读 `../14-陷阱清单.md` 中该子阶段引用的条目;39 条陷阱按"会炸得多惨"排序,高编号(v3 组件纯度类、v4 跨级纪律类)在阶段 1~4 尤其致命。
 6. **引擎内容盲**:`engine/**` 不出现任何 mode id 字面量(含 `lobby`)与 `Phase/Rule/Role/Team/Score/Objective` 等内容词汇;组件不出现任何具体玩法内容字样(具体玩法禁词随玩法线清单)——`EnginePurityTest` 与 `EngineHasNoModeStringsTest` 守门(§16.2-★24/4)。
 
-## 4. §16.2 验收(59 条,含 ★34~★40、★41~★55、★56~★58 与 ★59;★v1.3:★10~★12 归属迁宿主线;★v1.4:+★56~★57;★v1.5:+★58;★v1.6:+★59)→ 阶段映射表
+## 4. §16.2 验收(60 条,含 ★34~★40、★41~★55、★56~★58、★59 与 ★60;★v1.3:★10~★12 归属迁宿主线;★v1.4:+★56~★57;★v1.5:+★58;★v1.6:+★59;★v1.7:+★60,★32 废止)→ 阶段映射表
 
-> ★ 编号与归属口径同 `../16-路线图与验收.md` §16.2(框架/玩法两线**同一套编号**,不拆分不重排);「首次建立于/持续验证于」列中标注「迁 Shdf 侧」者为玩法线执行点,行内注给出框架侧承接点;闸门等价物留框架侧的条目(★13)由框架测试先行建立。计数口径:59 条 = 框架 52 + SHDF 扩展线 3(★3/★21/★23)+ 两线联合 1(★32)+ 宿主线 3(★10/★11/★12,v1.3 迁出,21 §11);★41~★53 为 v1.1 新增、★54~★55 为 v1.2 新增、★56~★57 为 v1.4 新增(22 号)、★58 为 v1.5 新增(23 号)、**★59 为 v1.6 新增(24 号)**,全部归属框架线(★41~★46/★51~★57 首建于 7.5,★47~★50 首建于 8.1,★58 首建于 2.4,★59 首建于 7.2/7.5);v1.5 时点口径为「58 条」,v1.4 时点口径为「57 条」,v1.3 时点口径为「55 条」,v1.2 前口径为「框架 51」(含 ★10~★12,当时归属框架)。
+> ★ 编号与归属口径同 `../16-路线图与验收.md` §16.2(框架/玩法两线**同一套编号**,不拆分不重排);「首次建立于/持续验证于」列中标注「迁 Shdf 侧」者为玩法线执行点,行内注给出框架侧承接点;闸门等价物留框架侧的条目(★13)由框架测试先行建立。计数口径:60 条 = 框架 53 + SHDF 扩展线 3(★3/★21/★23)+ 两线联合 1(★32,**★v1.7 废止行不计有效命题**,25 号 §5)+ 宿主线 3(★10/★11/★12,v1.3 迁出,21 §11);★41~★53 为 v1.1 新增、★54~★55 为 v1.2 新增、★56~★57 为 v1.4 新增(22 号)、★58 为 v1.5 新增(23 号)、★59 为 v1.6 新增(24 号)、**★60 为 v1.7 新增(25 号)**,全部归属框架线(★41~★46/★51~★57 首建于 7.5,★47~★50 首建于 8.1,★58 首建于 2.4,★59 首建于 7.2/7.5,★60 首建于 7.5);**★v1.7(25 号):★32 就地废止**(能力标签扩展随标签机制全链退场;编号不删不重排,废止行不计有效命题,命题由 ★60 承接);v1.6 时点口径为「59 条」,v1.5 时点口径为「58 条」,v1.4 时点口径为「57 条」,v1.3 时点口径为「55 条」,v1.2 前口径为「框架 51」(含 ★10~★12,当时归属框架)。
 
 | 验收 | 归属 | 命题 | 首次建立于 | 持续验证于 |
 |---|---|---|---|---|
@@ -105,7 +106,7 @@
 | 29 | 框架 | 跨级只读访问(★v4) | 2.6 | — |
 | 30 | 框架 | 会话组件故障隔离不解散(★v4) | 2.6 | — |
 | 31 | 框架(玩法线复测) | 空场策略可插拔(★v4) | 2.6 | 6.x(带玩法复测,迁 Shdf 侧) |
-| 32 | 框架机制+扩展线接线 | 能力标签扩展(★v4) | 2.6(会话侧)/ 3.3(桥接侧,迁 Shdf 侧) | 全阶段 |
+| 32 | 框架机制+扩展线接线 | 能力标签扩展(★v4)(**★v1.7 废止,25 号 §5:本条随能力标签机制全链退场废止**——外部能力 = 会话组件桥接,命题由 ★60 承接;编号不删不重排,本行保留存档、不计有效命题) | 2.6(会话侧)/ 3.3(桥接侧,迁 Shdf 侧) | 全阶段(★v1.7 起:检验随机制退役废止,25 号) |
 | 33 | 框架 | 会话组件不参与切换装配(★v4) | 2.6 | — |
 | 34 | 框架 | 注册查重响亮失败(★v4.1) | 1.6 | 全阶段 |
 | 35 | 框架 | 装配期依赖校验(★v4.1) | 1.6 | 全阶段 |
@@ -133,6 +134,7 @@
 | 57 | 框架 | 地图仅注册通道(★v1.4):配置装载零地图条目(`YamlCodec.readMap`/`MapDefinition.from`/`MapRegistry.replace` 与文件半边、无参构造退场),地图仅经 `registerMap` 进目录,目录顺序 = 注册序;注册期校验与正用摘除被拒守卫(20-D3/D4)不变 | 7.5(★v1.4 收敛) | 全阶段复验(`MapRegistryTest`/`MapRegistrationTest`) |
 | 58 | 框架 | 副本复用窗口 = 会话生命周期(★v1.5):REUSE_DIRTY 副本目录随其所属会话解散而销毁(`WorldPort#discardSession` 三类覆盖:切换离开保留的目录/在用句柄/迟到 in-flight);切换离开时目录保留(复用语义不变)、TEMPLATE_RESTORE 归零删副本原样;删除仍唯一走 `deleteCopyDir` 入口 + 路径形态断言;幂等 | 2.4(★v1.5 收敛) | 全阶段复验(`WorldRefCountTest` ⑧ 断言族) |
 | 59 | 框架 | 显式注册收敛(★v1.6):模式与会话组件改经 `MiniGameApi` 显式注册四法——`registerMode(Plugin, MatchModeProvider)`(注册闸 build→verifyDependencies→id 查重全响亮,返回 `MatchModeInfo`)、`unregisterMode(Plugin, modeId)`(只摘自己的 id,越权响亮拒/不存在幂等 no-op;摘除回退编排:fallback-mode force 切换或 FALLBACK_DISSOLVE)、`registerSessionComponents(Plugin, specs)`(干跑校验响亮上抛、幂等重收录)、`unregisterSessionComponents(Plugin)`(幂等);ServicesManager 提供方通道退场(`SessionComponentProvider` SPI 与 `ProviderServiceListener` 删除,`MatchModeRegistry#discover()` 只剩 ServiceLoader 本 jar 半边),注册时序反转 = depend 框架 + `load(MiniGameApi)` 后显式登记;disable 兜底四族(ProviderUnloadListener);API_VERSION 4→5、冻结面 15→19 方法 | 7.5(★v1.6 收敛) | 全阶段复验(`MiniGameApiSurfaceTest`/`ApiSurfaceTest` 快照随 v1.6 合法更新;`ThirdPartyModeRegistrationTest`/`SessionComponentContributionTest` 显式通道复验) |
+| 60 | 框架 | 能力标签机制全链退场(★v1.7):字符串能力标签平行层整体删除(`MiniGameApi` 能力两法——API_VERSION 5→6、冻结面 19→17;`CapabilityRegistry`;切换 A2 校验;`MatchModeMeta.requiredCapabilities`;`MatchModeInfo` 快照分量;`SessionComponent.Specification#capabilities`;`ServiceSpec.capabilities` 与 seal/shutdown 两端注册;`ProviderUnloadListener` 能力块——兜底四族收敛三族;`capabilityClaims`)——外部能力 = **会话组件桥接**:提供方经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接会话组件,消费方组件 `requires`/`requiresOptional` 类型化声明,装配期响亮、运行期 quarantine(语义位移 = 创建时绑定 + 运行期降级,provider 摘除只影响后续会话;软依赖 = `requiresOptional`,★21 承载);★32 同批废止(§16.2) | 7.5(★v1.7 收敛;`MiniGameApiSurfaceTest` FROZEN 17 行、`ApiSurfaceTest` BASELINE 重录、API_VERSION=6;`CapabilitySoftDependTest` 标签断言族随机制退役) | 全阶段复验(桥接组件经 `SessionComponentContributionTest` requires/requiresOptional 断言族复验) |
 
 ## 5. 子阶段文档模板(各阶段统一)
 
@@ -326,6 +328,27 @@
 - **子阶段计数与依赖图不变**:v1.6 是对已验收面(7.1/7.2/7.5)的注册面收敛,不新增子阶段、不改依赖;★59 由 v1.6 窗口补建。
 - **存量消费方迁移**:①原经 `getServicesManager().register(MatchModeProvider.class, …)` 的第三方插件 → `depend: [HydroKarbs]` + `onEnable` 里 `load(MiniGameApi)` 版本检查(REQUIRED = 5)→ `api.registerMode(this, factory)`;②原 `SessionComponentProvider` 实现类 → 拆为 `SessionComponent.Spec` 清单,`onEnable` 调 `api.registerSessionComponents(this, specs)`、`onDisable` 调 `api.unregisterSessionComponents(this)`;③能力标签无独立反注册法,随 disable 由兜底四族摘除(D8);④显式反注册仍是纪律(兜底不是免死金牌,14.38)。
 
+## 15. v1.7 影响清单与交付顺序(能力标签机制退场)
+
+> ★v1.7(2026-10-27;用户裁决:字符串契约不严谨):字符串能力标签平行层整体退役——`CapabilityRegistry`、切换 A2 能力校验、`MiniGameApi#registerCapability`/`capabilities` 两法(API_VERSION 5→6,冻结面 19→17 方法)、`MatchModeMeta.requiredCapabilities`(Builder 声明语言变更)、`MatchModeInfo` 快照分量、`SessionComponent.Specification#capabilities`、`ServiceSpec.capabilities` 与 seal/shutdown 两端注册、`ProviderUnloadListener` 能力块(兜底四族收敛三族)、`capabilityClaims` 簿记;**外部能力新形态 = 会话组件桥接**:提供方(或宿主自持防腐层)经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接组件,消费方组件 `requires`/`requiresOptional` 声明依赖,装配期响亮、运行期 quarantine;软依赖由 `requiresOptional` 独自承载(机制已在框架内,非新增;★21/★60);**语义位移**:能力校验从「每次切换重查(进程级)」改为「创建时绑定 + 运行期降级/quarantine」——provider 摘除只影响后续会话,存量会话由桥接组件自身降级承接(D14 既有口径);冻结测试合法更新(FROZEN 17 行、BASELINE 重录、API_VERSION=6)。
+> 变更全文见 `../25 号修正案`(v1.7 能力标签机制退场;正文落盘前以本横幅与本节为准);新增验收 **★60**(§4,首建于 7.5)、**★32 同批废止**(编号不删不重排,废止行不计有效命题);施工已随 v1.7 窗口完成(git 实况为准),本节留档影响面。
+
+### 15.1 受影响子阶段
+
+| 子阶段 | v1.7 影响 | 处置(落点) |
+|---|---|---|
+| 1.6 进程级服务装配 | `ServiceSpec` 的 `capabilities` 声明与 `ServiceRegistry` 构造注入(`CapabilityRegistry`)/seal 注册/shutdown 摘除两端标签接线退场;能力标签随 seal 注册/随 shutdown 摘除的测试项废止 | 施工已完成;本档头部加 ★v1.7 注(原文为施工序列存档,不改写) |
+| 2.3 switchMode 两阶段切换 | 切换 **A2 能力校验退役**(`CapabilityRegistry`/`requiredCapabilities` 全链删除)——外部能力装配闸改由组件 `requires`/`requiresOptional` 承载,硬依赖缺失在装配期响亮(干跑合并校验/`createSession` 拒绝);A2 行保留为历史口径行,步骤表不重排 | 施工已完成;本档头部加 ★v1.7 注(原文为施工序列存档,不改写) |
+| 2.6 会话级组件层 | `SessionComponent.Specification#capabilities` 方法与 Snapshot `capabilities` 分量删除(原「会话组件标签进 A2 可用集」交付项随机制废止);**★32 框架半边随 ★60 改判**(废止) | 施工已完成;本档头部加 ★v1.7 注(原文为施工序列存档,不改写) |
+| 7.1 MiniGameApi 冻结面 / 7.5 API 面扩充与拆分彩排 | **冻结面 19→17 与快照重录**——`registerCapability`/`capabilities` 两法随冻结面收敛删除(API_VERSION 5→6);`MiniGameApiSurfaceTest` FROZEN 17 行、`ApiSurfaceTest` BASELINE 重录(`SessionRecipe`/view record 的能力分量行同步删除)、`CapabilityRegistryTest` 删除;示例与测试样例 REQUIRED_API_VERSION 升 6 | 施工已完成;两档头部加 ★v1.7 注(原文为施工序列存档,不改写) |
+| 7.2 第三方注册与扩展 | **收录面**:D4 能力标签注册法随两法删除(API_VERSION 5→6、冻结面 19→17);disable 兜底四族收敛**三族**(能力职责块移除);消费样例 REQUIRED_API_VERSION 升 6 | 施工已完成;本档头部加 ★v1.7 注(原文为施工序列存档,不改写) |
+| 其余阶段(1 余项/2 余项/4/7 余项/8) | 引擎内部机制零改动——**v1.7 影响:无**(上列 1.6/2.3/2.6/7.1/7.5/7.2 除外;14.38 兜底三族随注,零新增陷阱编号) | 各阶段 README 原注不变 |
+
+### 15.2 交付顺序约束
+
+- **子阶段计数与依赖图不变**:v1.7 是对已验收面(1.6/2.3/2.6/7.1/7.2/7.5)的机制退场收敛,不新增子阶段、不改依赖;★60 由 v1.7 窗口补建、★32 同批废止(编号不删不重排)。
+- **存量消费方迁移**:①原调 `registerCapability(Plugin, tag)` 的提供方 → 贡献**类型化桥接会话组件**(`onEnable` 调 `api.registerSessionComponents(this, specs)` 或经 `SessionRecipe` 单次携带),消费方组件在 Spec 上 `requires(...)`/`requiresOptional(...)` 声明依赖;②消费方 `onEnable` 版本检查 REQUIRED = 6(14.36);③**存量会话语义**:provider 摘除只影响后续会话,存量会话由桥接组件自身降级承接(D14;运行期 quarantine/降级既有机制,★30/★53);④显式反注册仍是纪律(兜底三族:模式/地图/会话组件贡献,14.38)。
+
 ---
 
-*施工计划版本:v1.0(2026-10-16,由统筹规划生成;各阶段内容经并行编写 + 对抗式评审修订;★v1.3 增补 §11;★v1.4 增补 §12;★v1.5 增补 §13;★v1.6 增补 §14)*
+*施工计划版本:v1.0(2026-10-16,由统筹规划生成;各阶段内容经并行编写 + 对抗式评审修订;★v1.3 增补 §11;★v1.4 增补 §12;★v1.5 增补 §13;★v1.6 增补 §14;★v1.7 增补 §15)*

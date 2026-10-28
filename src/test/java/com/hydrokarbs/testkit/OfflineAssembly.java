@@ -136,7 +136,7 @@ public final class OfflineAssembly {
     /** 四件套拼装便捷口:按传入顺序 addComponent(声明序 = 入表序)。 */
     public static MatchMode mode(String modeId, LinkedHashMap<String, MatchModeComponent.Specification<?>> specs) {
         MatchMode.Builder builder = new MatchMode.Builder(modeId)
-                .meta(new MatchModeMeta(java.util.Set.of(), false, 0, 100,
+                .meta(new MatchModeMeta(false, 0, 100,
                         MatchModeMeta.DefaultTransition.STAY));
         specs.forEach(builder::addComponent);
         return builder.build();

@@ -17,7 +17,7 @@ import com.hydrokarbs.engine.port.SessionServices;
  *   <li><b>低版本拒载用例(★46/14.36)</b>:{@code onEnable} 首行版本判定的真值表——
  *       api 缺席/版本低于要求 → 拒载,恰好满足 → 放行(拒载路径本体
  *       {@code setEnabled(false)} 需活服,由 runServer 冒烟覆盖,不在本子阶段);</li>
- *   <li><b>坏贡献用例(★51 的消费方侧形状;★v1.5 显式注册口径)</b>:声明一个贡献了
+ *   <li><b>坏贡献用例(★51 的消费方侧形状;★v1.6 显式注册口径)</b>:声明一个贡献了
  *       「无人供给依赖」组件的描述符——它在框架侧收录闸干跑校验会<b>响亮抛</b>给
  *       调用方(onEnable 注册失败 = 拒载信号,行为本体由框架侧
  *       SessionComponentContributionTest 承载,样例只示范形状);
@@ -36,15 +36,15 @@ class TheirPluginGuardsTest {
                 "api 缺席 → 拒载(14.36)");
         assertTrue(TheirPlugin.shouldDisable(2, TheirPlugin.REQUIRED_API_VERSION),
                 "API_VERSION 低于要求 → 拒载(14.36)");
-        assertTrue(TheirPlugin.shouldDisable(4, TheirPlugin.REQUIRED_API_VERSION),
-                "v4 < 要求 5 → 拒载(14.36;★v1.5 起要求 5,显式注册收敛)");
-        assertFalse(TheirPlugin.shouldDisable(5, TheirPlugin.REQUIRED_API_VERSION),
-                "恰好满足 → 放行(One-Version Rule,不要求更新面)");
+        assertTrue(TheirPlugin.shouldDisable(5, TheirPlugin.REQUIRED_API_VERSION),
+                "v5 < 要求 6 → 拒载(14.36;★v1.7 起要求 6,能力标签机制退场)");
         assertFalse(TheirPlugin.shouldDisable(6, TheirPlugin.REQUIRED_API_VERSION),
+                "恰好满足 → 放行(One-Version Rule,不要求更新面)");
+        assertFalse(TheirPlugin.shouldDisable(7, TheirPlugin.REQUIRED_API_VERSION),
                 "更高版本 → 放行(只增不减,D7)");
     }
 
-    // ── ★51 消费方侧:合法贡献声明 + 坏贡献形状(★v1.5 显式注册口径) ──
+    // ── ★51 消费方侧:合法贡献声明 + 坏贡献形状(★v1.6 显式注册口径) ──
 
     @Test
     void declaredContributionSpecsAreNonEmptyAndWellTyped() {
@@ -58,7 +58,7 @@ class TheirPluginGuardsTest {
     @Test
     void brokenContributionShapeIsExpressibleAndFrameworkOwesLoudRejection() {
         // 坏贡献:声明依赖一个无人供给的组件类型——框架收录闸干跑校验
-        // (组件 id 查重/必需依赖)会响亮抛给调用方(★v1.5 显式注册可捕获;★51)。
+        // (组件 id 查重/必需依赖)会响亮抛给调用方(★v1.6 显式注册可捕获;★51)。
         List<SessionComponent.Specification<?>> broken = List.<SessionComponent.Specification<?>>of(
                 new BrokenSpec().requires(UnresolvedSessionComponent.class));
 

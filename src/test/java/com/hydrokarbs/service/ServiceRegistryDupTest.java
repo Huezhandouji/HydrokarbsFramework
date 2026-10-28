@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 
 import com.hydrokarbs.engine.service.ServiceRegistry;
 import com.hydrokarbs.engine.service.ServiceSpec;
-import com.hydrokarbs.engine.session.CapabilityRegistry;
 
 /**
  * ★34 注册查重响亮失败(1.6「测试与验收」表;18 号修正案 §7)。
@@ -26,7 +25,7 @@ class ServiceRegistryDupTest {
     }
 
     private static ServiceRegistry newRegistry() {
-        return new ServiceRegistry(new CapabilityRegistry());
+        return new ServiceRegistry();
     }
 
     /** 重复 id → 抛,消息点名先到者(id + 先到者类型,两个同 id 声明靠类型区分)。 */
