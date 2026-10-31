@@ -8,8 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.logging.Logger;
 
@@ -122,14 +120,14 @@ class ComponentResolutionTest {
 
     private static MatchMode.Builder modeBuilder(String id) {
         return new MatchMode.Builder(id)
-                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100));
     }
 
     private static MatchModeInstance create(MatchMode mode) {
         return mode.createInstance(
                 new Session(new SessionSpec(new SessionId("s1"), "resolve-probe", List.of()),
                         SessionPolicy.defaults(SessionPolicy.Topology.ROTATION)),
-                new MapDefinition("map1", "world1", Set.of(), Map.of()),
+                new MapDefinition(java.nio.file.Path.of("map1"), AttributeBag.empty()),
                 com.hydrokarbs.testkit.OfflineAssembly.cfg(),
                 null,
                 Handoff.empty(),

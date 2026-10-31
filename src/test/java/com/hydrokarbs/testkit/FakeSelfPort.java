@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.event.MatchModeInstanceEvent;
 import com.hydrokarbs.engine.event.MatchModeInstanceEventBus;
 import com.hydrokarbs.engine.event.MatchModeInstanceEventPort;
@@ -41,7 +40,6 @@ public final class FakeSelfPort implements MatchModeInstancePort {
     /** 真事件总线(发布/订阅行为与容器一致)。 */
     public final MatchModeInstanceEventBus bus = new MatchModeInstanceEventBus();
 
-    private final AttributeBag attrs = new AttributeBag();
     private final Handoff handoff = Handoff.empty();
     private final MatchModeConfig cfg;
 
@@ -71,11 +69,6 @@ public final class FakeSelfPort implements MatchModeInstancePort {
     @Override
     public long tick() {
         return tickCount;
-    }
-
-    @Override
-    public AttributeBag attrs() {
-        return attrs;
     }
 
     @Override

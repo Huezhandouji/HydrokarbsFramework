@@ -4,13 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Logger;
 
 import org.junit.jupiter.api.Test;
 
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeMeta;
@@ -119,7 +118,7 @@ class MatchModeInstanceCloseIdempotencyTest {
     void closeThreeTimesStopsEachComponentExactlyOnceReverseOrder() {
         List<String> log = new ArrayList<>();
         MatchMode.Builder builder = new MatchMode.Builder("m1")
-                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100));
         for (int i = 1; i <= 3; i++) {
             builder.addComponent("c" + i, new ProbeSpec(log));
         }
@@ -130,7 +129,7 @@ class MatchModeInstanceCloseIdempotencyTest {
                 SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
         session.roster().join(UUID.randomUUID(), 1L);
         MatchModeConfig cfg = new FallbackConfig();
-        MapDefinition map = new MapDefinition("map1", "world1", Set.of(), Map.of());
+        MapDefinition map = new MapDefinition(java.nio.file.Path.of("map1"), AttributeBag.empty());
         CountingPlatform platform = new CountingPlatform();
 
         MatchModeInstance instance = mode.createInstance(session, map, cfg, null,

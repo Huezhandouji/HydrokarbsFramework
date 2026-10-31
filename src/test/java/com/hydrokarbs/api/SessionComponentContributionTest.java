@@ -9,11 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.nio.file.Path;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import com.hydrokarbs.api.view.SessionInfo;
 import com.hydrokarbs.engine.component.ComponentDependencyException;
@@ -28,6 +26,7 @@ import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SessionState;
 import com.hydrokarbs.testkit.FakeWorldPort;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineApi;
 import com.hydrokarbs.testkit.SessionProbeComponent;
 import com.hydrokarbs.testkit.StubSessionService;
@@ -54,15 +53,16 @@ class SessionComponentContributionTest {
     private static final String MODE_ID = "probe_mode";
     private static final MatchMode MODE = OfflineApi.mode(MODE_ID, OfflineApi.TAG);
 
-    @TempDir
-    Path tempDir;
 
     private OfflineApi harness;
 
     @BeforeEach
     void setUp() {
-        harness = new OfflineApi(tempDir.resolve("maps").resolve("templates"),
-                FakeWorldPort.immediate(), MODE);
+        harness = new OfflineApi(FakeWorldPort.immediate(), MODE);
+        // ★v1.13/31 号适配:首切失败不再「无实例驻留」而是泊回退——本 rig 回退为空串
+        //(无效回退 → SEVERE + 解散),无地图时会话创建即散、后续断言全塌;注册一张
+        // probe 模式可用的图让首切实例就位(镜像 MiniGameApiMembersTest 装配惯例)。
+        MapTestKit.registered(harness.maps, MapTestKit.newMapsDir(), "probe_map", OfflineApi.TAG);
     }
 
     /** 假会话服务:记录 create 收到的 spec(合并序断言面;镜像 MiniGameApiImplTest 假件)。 */
@@ -198,7 +198,9 @@ class SessionComponentContributionTest {
                         List.of(new SessionProbeComponent.Spec(log).failOnUpdate("boom"))));
 
         Session created = harness.service.session(new SessionId(info.sessionId())).orElseThrow();
-        created.tickSessionComponents();                  // 运行期 update 抛 → D9 隔离
+        harness.ticker.tickAll();                     // ★v1.13/31 号:有图后首切在途,驱动两拍落位
+        harness.ticker.tickAll();                     // (api.createSession 不驱拍,镜像 OfflineApi.createSession 惯例)
+        created.tickSessionComponents();              // 运行期 update 抛 → D9 隔离
 
         SessionProbeComponent probe = created.sessionComponents().get(SessionProbeComponent.class);
         assertTrue(created.sessionComponents().isQuarantined(probe),

@@ -60,11 +60,7 @@ import com.hydrokarbs.component.rule.Rule;
 import com.hydrokarbs.component.rule.RuleBookComponent;
 import com.hydrokarbs.component.rule.RuleContext;
 import com.hydrokarbs.component.session.EmptyArenaComponent;
-import com.hydrokarbs.map.InteractPoint;
 import com.hydrokarbs.map.MapDefinition;
-import com.hydrokarbs.map.NamedRegion;
-import com.hydrokarbs.map.RegionSet;
-import com.hydrokarbs.map.SpawnPoint;
 import com.hydrokarbs.api.view.MapInfo;
 import com.hydrokarbs.api.view.MatchModeInfo;
 import com.hydrokarbs.api.view.SessionInfo;
@@ -84,8 +80,8 @@ import com.hydrokarbs.api.view.SessionInfo;
  *       原 {@code SessionComponentProvider} SPI 随 ServicesManager 提供方通道
  *       退场删除,消费方迁移 {@code MiniGameApi#registerSessionComponents});</li>
  *   <li>{@code engine.mode/**}——MatchMode(嵌套 Builder/ComponentEntry)、
- *       MatchModeMeta(嵌套 DefaultTransition)、MatchModeProvider(19-D6 行;
- *       Builder 即声明语言,7.2 落地);</li>
+ *       MatchModeMeta(★v1.13/31 号:嵌套 DefaultTransition 随缺省去向管线
+ *       退场出册)、MatchModeProvider(19-D6 行;Builder 即声明语言,7.2 落地);</li>
  *   <li>两级组件基类及其 Specification/Snapshot/Factory——MatchModeComponent/
  *       SessionComponent 家族(<b>不含两 Registry</b>,19-D6「不含 Registry」);</li>
  *   <li>{@code engine.session} 值类型——Handoff(嵌套 Key/Builder)/HandoffView/
@@ -101,7 +97,7 @@ import com.hydrokarbs.api.view.SessionInfo;
  *   <li>{@code engine.port} 契约——MatchModeInstanceServices/MatchModeInstancePort/
  *       SessionServices/SessionPort/MatchModeInstanceAccess/SessionView/JoinAdmission
  *       (19-D6)+ JoinContext/JoinDecision(Kind)(JoinAdmission#admit 签名闭包必需)
- *       + AttributeBag(实为 engine 根,19-D6 括注);</li>
+ *       + AttributeBag(实为 engine 根,19-D6 括注;Key/Builder 同册,声明词料容器);</li>
  *   <li>{@code engine.event/**}——SessionEvent 八 record 族、SessionEventPort、
  *       MatchModeInstanceEvent 族(Structural + 七 record)、
  *       MatchModeInstanceEventPort、两内部总线(19-D6「engine.event/**」整包口径);</li>
@@ -113,8 +109,10 @@ import com.hydrokarbs.api.view.SessionInfo;
  *       MatchOutcome(Kind)/EndGateComponent(Spec)/PhaseChanged/PhaseSpec(Kind)/
  *       PhaseComponent(Spec/PhaseCountdown)/Rule/RuleContext/RuleBookComponent(Spec)/
  *       EmptyArenaComponent(Spec)(19-D6 行;组件类与其 Spec 是模式/宿主的声明面);</li>
- *   <li>{@code map/} 读面——MapDefinition(Bounds)/RegionSet/NamedRegion(RegionType)/
- *       SpawnPoint/InteractPoint(19-D6;★v1.2 registerMap 签名必需,7.5 决策 4)。</li>
+ *   <li>{@code map/} 读面——MapDefinition(19-D6;★v1.2 registerMap 签名必需,
+ *       7.5 决策 4;★v1.8 瘦身后单类在册——Bounds/RegionSet/NamedRegion(RegionType)/
+ *       SpawnPoint/InteractPoint 随声明瘦身出册,26 号修正案议题;metadata 词料
+ *       容器归 engine 根 {@code AttributeBag},标签读口 = {@code MapDefinition#tags()})。</li>
  * </ul>
  *
  * <p><b>永不导出(白名单反面,显式列出;07 §7.2/19-D6/19-D14;★v1.3 历史口径注见该表)</b>:
@@ -145,9 +143,9 @@ class ApiSurfaceTest {
             SessionEventView.ModeSwitchStarted.class, SessionEventView.ModeSwitchCompleted.class,
             SessionEventView.Dissolved.class, SessionEventView.ComponentQuarantined.class,
             SessionInfo.class, MatchModeInfo.class, MapInfo.class,
-            // ── engine.mode/**(19-D6) ──
+            // ── engine.mode/**(19-D6;★v1.13/31 号:DefaultTransition 出册) ──
             MatchMode.class, MatchMode.Builder.class, MatchMode.ComponentEntry.class,
-            MatchModeMeta.class, MatchModeMeta.DefaultTransition.class, MatchModeProvider.class,
+            MatchModeMeta.class, MatchModeProvider.class,
             // ── 两级组件基类 + Specification/Snapshot/Factory(不含 Registry,19-D6) ──
             MatchModeComponent.class, MatchModeComponent.Specification.class,
             MatchModeComponent.Specification.Snapshot.class, MatchModeComponent.Factory.class,
@@ -160,11 +158,13 @@ class ApiSurfaceTest {
             SwitchResult.Reason.class, JoinResult.class, JoinResult.Joined.class,
             JoinResult.Rejected.class, LeaveReason.class, DissolveReason.class,
             SessionId.class, MatchModeConfig.class,
-            // ── engine.port 契约(19-D6 + JoinContext/JoinDecision 签名闭包) ──
+            // ── engine.port 契约(19-D6 + JoinContext/JoinDecision 签名闭包;
+            //    AttributeBag 实为 engine 根,声明词料容器) ──
             MatchModeInstanceServices.class, MatchModeInstancePort.class,
             SessionServices.class, SessionPort.class, MatchModeInstanceAccess.class,
             SessionView.class, JoinAdmission.class, JoinContext.class,
             JoinDecision.class, JoinDecision.Kind.class, AttributeBag.class,
+            AttributeBag.Key.class, AttributeBag.Builder.class,
             // ── engine.event/**(19-D6 整包口径) ──
             SessionEvent.class, SessionEvent.SessionCreated.class,
             SessionEvent.MemberJoined.class, SessionEvent.MemberLeft.class,
@@ -186,10 +186,10 @@ class ApiSurfaceTest {
             PhaseComponent.PhaseCountdown.class, Rule.class, RuleContext.class,
             RuleBookComponent.class, RuleBookComponent.Spec.class,
             EmptyArenaComponent.class, EmptyArenaComponent.Spec.class,
-            // ── map/ 读面(19-D6;registerMap 签名必需) ──
-            MapDefinition.class, MapDefinition.Bounds.class, RegionSet.class,
-            NamedRegion.class, NamedRegion.RegionType.class, SpawnPoint.class,
-            InteractPoint.class);
+            // ── map/ 读面(19-D6;registerMap 签名必需;★v1.8 瘦身后
+            //    Bounds/RegionSet/NamedRegion/SpawnPoint/InteractPoint 随瘦身出册;
+            //    metadata 词料容器归 engine 根 AttributeBag) ──
+            MapDefinition.class);
 
     // ── 断言 ①:MiniGameApi 签名零非白名单类型(★44 前半) ────────────────
 
@@ -264,7 +264,19 @@ class ApiSurfaceTest {
      *  ★v1.7 更新:删能力标签两法 + MatchModeInfo/MatchModeMeta 的所需能力分量 +
      *  SessionComponent$Specification$Snapshot#capabilities 与 Specification#capabilities 共 6 行
      *  (25 号修正案:标签机制退场,快照合法重录);
-     *  由 {@code snapshotLines()} 同算法生成后粘贴;须先于 BASELINE 声明)。 */
+     *  ★v1.8 更新(26 号修正案议题,快照合法重录):MapDefinition 瘦身为
+     *  worldDirectoryPath/resetStrategy/metadata 三分量行 + id/TAGS/tags 读口行,
+     *  Bounds/RegionSet/NamedRegion(RegionType)/SpawnPoint/InteractPoint 出册,
+     *  MapInfo 收缩为 id/tags/resetStrategy;旧属性袋成员行与各端口 attrs()/attr()
+     *  行随退场删除,engine 根 AttributeBag(Key/Builder 同册)= 声明词料容器;
+     *  map 包旧标签提供者类型及其 #tags() 读口出册;
+     *  由 {@code snapshotLines()} 同算法生成后粘贴;须先于 BASELINE 声明;
+     *  ★v1.12 更新(30 号修正案,快照合法重录):删 JoinDecision$Kind 的观战位常量一行
+     *  (裁决词汇收缩为 ADMIT/REJECT 二值,ADR-0018);
+     *  ★v1.13 更新(31 号修正案,快照合法重录):缺省去向管线退场——删
+     *  MatchModeInfo#defaultTransition、MatchModeMeta#defaultTransition 与
+     *  MatchModeMeta$DefaultTransition 的 FALLBACK/ROTATION/STAY/valueOf/values
+     *  共 7 行(经用户裁决不设双轨过渡期,API_VERSION 7 → 8)。 */
     private static final String BASELINE_TEXT = """
 com.hydrokarbs.api.EventSubscription#close():void
 com.hydrokarbs.api.MiniGameApi#API_VERSION:int
@@ -346,15 +358,12 @@ com.hydrokarbs.api.SessionRecipe#initialModeId():java.lang.String
 com.hydrokarbs.api.SessionRecipe#mapPool():java.util.List
 com.hydrokarbs.api.SessionRecipe#of(java.lang.String,java.lang.String):com.hydrokarbs.api.SessionRecipe
 com.hydrokarbs.api.SessionRecipe#toString():java.lang.String
-com.hydrokarbs.api.view.MapInfo#displayName():java.lang.String
 com.hydrokarbs.api.view.MapInfo#equals(java.lang.Object):boolean
 com.hydrokarbs.api.view.MapInfo#hashCode():int
 com.hydrokarbs.api.view.MapInfo#id():java.lang.String
 com.hydrokarbs.api.view.MapInfo#resetStrategy():java.lang.String
 com.hydrokarbs.api.view.MapInfo#tags():java.util.Set
 com.hydrokarbs.api.view.MapInfo#toString():java.lang.String
-com.hydrokarbs.api.view.MapInfo#world():java.lang.String
-com.hydrokarbs.api.view.MatchModeInfo#defaultTransition():java.lang.String
 com.hydrokarbs.api.view.MatchModeInfo#description():java.util.List
 com.hydrokarbs.api.view.MatchModeInfo#displayName():java.lang.String
 com.hydrokarbs.api.view.MatchModeInfo#equals(java.lang.Object):boolean
@@ -447,13 +456,18 @@ com.hydrokarbs.component.session.EmptyArenaComponent#stop():void
 com.hydrokarbs.component.session.EmptyArenaComponent#update():void
 com.hydrokarbs.component.session.EmptyArenaComponent$Spec#afterTicks():long
 com.hydrokarbs.component.session.EmptyArenaComponent$Spec#create(java.lang.String,com.hydrokarbs.engine.port.SessionServices):com.hydrokarbs.component.session.EmptyArenaComponent
-com.hydrokarbs.engine.AttributeBag#bindComponent(java.lang.String,java.lang.Class):void
+com.hydrokarbs.engine.AttributeBag#empty():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.AttributeBag#get(com.hydrokarbs.engine.AttributeBag$Key):java.util.Optional
 com.hydrokarbs.engine.AttributeBag#getOrDefault(com.hydrokarbs.engine.AttributeBag$Key,java.lang.Object):java.lang.Object
 com.hydrokarbs.engine.AttributeBag#has(com.hydrokarbs.engine.AttributeBag$Key):boolean
-com.hydrokarbs.engine.AttributeBag#isNamespaceCheckEnabled():boolean
-com.hydrokarbs.engine.AttributeBag#set(com.hydrokarbs.engine.AttributeBag$Key,java.lang.Object):void
-com.hydrokarbs.engine.AttributeBag#setNamespaceCheckEnabled(boolean):void
+com.hydrokarbs.engine.AttributeBag$Builder#build():com.hydrokarbs.engine.AttributeBag
+com.hydrokarbs.engine.AttributeBag$Builder#put(com.hydrokarbs.engine.AttributeBag$Key,java.lang.Object):com.hydrokarbs.engine.AttributeBag$Builder
+com.hydrokarbs.engine.AttributeBag$Key#equals(java.lang.Object):boolean
+com.hydrokarbs.engine.AttributeBag$Key#hashCode():int
+com.hydrokarbs.engine.AttributeBag$Key#name():java.lang.String
+com.hydrokarbs.engine.AttributeBag$Key#of(java.lang.String,java.lang.Class):com.hydrokarbs.engine.AttributeBag$Key
+com.hydrokarbs.engine.AttributeBag$Key#toString():java.lang.String
+com.hydrokarbs.engine.AttributeBag$Key#type():java.lang.Class
 com.hydrokarbs.engine.component.MatchModeComponent#awake():void
 com.hydrokarbs.engine.component.MatchModeComponent#id():java.lang.String
 com.hydrokarbs.engine.component.MatchModeComponent#onEvent(com.hydrokarbs.engine.event.MatchModeInstanceEvent):void
@@ -619,13 +633,11 @@ com.hydrokarbs.engine.event.SessionEventBus#publish(com.hydrokarbs.engine.event.
 com.hydrokarbs.engine.event.SessionEventBus#setMirror(java.util.function.Consumer):void
 com.hydrokarbs.engine.event.SessionEventBus#subscribe(java.lang.Class,int,java.util.function.Consumer):com.hydrokarbs.engine.event.SessionEventBus$Subscription
 com.hydrokarbs.engine.event.SessionEventBus#subscribe(java.lang.Class,java.util.function.Consumer):com.hydrokarbs.engine.event.SessionEventBus$Subscription
-com.hydrokarbs.engine.instance.MatchModeInstanceView#attr(com.hydrokarbs.engine.AttributeBag$Key):java.util.Optional
 com.hydrokarbs.engine.instance.MatchModeInstanceView#cfg():com.hydrokarbs.engine.session.MatchModeConfig
 com.hydrokarbs.engine.instance.MatchModeInstanceView#component(java.lang.Class):com.hydrokarbs.engine.component.MatchModeComponent
 com.hydrokarbs.engine.instance.MatchModeInstanceView#map():com.hydrokarbs.map.MapDefinition
 com.hydrokarbs.engine.instance.MatchModeInstanceView#session():com.hydrokarbs.engine.port.SessionView
 com.hydrokarbs.engine.instance.MatchModeInstanceView#tick():long
-com.hydrokarbs.engine.instance.Participant#attrs():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.instance.Participant#state():com.hydrokarbs.engine.instance.Participant$ParticipantState
 com.hydrokarbs.engine.instance.Participant#uuid():java.util.UUID
 com.hydrokarbs.engine.mode.MatchMode#components():java.util.Map
@@ -653,18 +665,12 @@ com.hydrokarbs.engine.mode.MatchMode$ComponentEntry#optionalTypes():java.util.Li
 com.hydrokarbs.engine.mode.MatchMode$ComponentEntry#providedType():java.lang.Class
 com.hydrokarbs.engine.mode.MatchMode$ComponentEntry#requiredTypes():java.util.List
 com.hydrokarbs.engine.mode.MatchMode$ComponentEntry#toString():java.lang.String
-com.hydrokarbs.engine.mode.MatchModeMeta#defaultTransition():com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
 com.hydrokarbs.engine.mode.MatchModeMeta#equals(java.lang.Object):boolean
 com.hydrokarbs.engine.mode.MatchModeMeta#hashCode():int
 com.hydrokarbs.engine.mode.MatchModeMeta#maxParticipants():int
 com.hydrokarbs.engine.mode.MatchModeMeta#minParticipants():int
 com.hydrokarbs.engine.mode.MatchModeMeta#recordsHistory():boolean
 com.hydrokarbs.engine.mode.MatchModeMeta#toString():java.lang.String
-com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#FALLBACK:com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
-com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#ROTATION:com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
-com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#STAY:com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
-com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#valueOf(java.lang.String):com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition
-com.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition#values():[Lcom.hydrokarbs.engine.mode.MatchModeMeta$DefaultTransition;
 com.hydrokarbs.engine.mode.MatchModeProvider#build(com.hydrokarbs.engine.session.MatchModeConfig):com.hydrokarbs.engine.mode.MatchMode
 com.hydrokarbs.engine.mode.MatchModeProvider#id():java.lang.String
 com.hydrokarbs.engine.mode.MatchModeProvider#requiredApiVersion():int
@@ -681,10 +687,8 @@ com.hydrokarbs.engine.port.JoinDecision#reason():java.lang.String
 com.hydrokarbs.engine.port.JoinDecision#toString():java.lang.String
 com.hydrokarbs.engine.port.JoinDecision$Kind#ADMIT:com.hydrokarbs.engine.port.JoinDecision$Kind
 com.hydrokarbs.engine.port.JoinDecision$Kind#REJECT:com.hydrokarbs.engine.port.JoinDecision$Kind
-com.hydrokarbs.engine.port.JoinDecision$Kind#SPECTATE:com.hydrokarbs.engine.port.JoinDecision$Kind
 com.hydrokarbs.engine.port.JoinDecision$Kind#valueOf(java.lang.String):com.hydrokarbs.engine.port.JoinDecision$Kind
 com.hydrokarbs.engine.port.JoinDecision$Kind#values():[Lcom.hydrokarbs.engine.port.JoinDecision$Kind;
-com.hydrokarbs.engine.port.MatchModeInstanceAccess#attrs():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#component(java.lang.Class):com.hydrokarbs.engine.component.MatchModeComponent
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#components(java.lang.Class):java.util.List
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#id():com.hydrokarbs.engine.instance.MatchModeInstanceId
@@ -692,7 +696,6 @@ com.hydrokarbs.engine.port.MatchModeInstanceAccess#modeId():java.lang.String
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#modeInfo():com.hydrokarbs.engine.port.MatchModeInfoPort
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#participants():java.util.List
 com.hydrokarbs.engine.port.MatchModeInstanceAccess#tick():long
-com.hydrokarbs.engine.port.MatchModeInstancePort#attrs():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.port.MatchModeInstancePort#cfg():com.hydrokarbs.engine.session.MatchModeConfig
 com.hydrokarbs.engine.port.MatchModeInstancePort#end(com.hydrokarbs.engine.session.EndResult):void
 com.hydrokarbs.engine.port.MatchModeInstancePort#events():com.hydrokarbs.engine.event.MatchModeInstanceEventPort
@@ -713,7 +716,6 @@ com.hydrokarbs.engine.port.MatchModeInstanceServices#toString():java.lang.String
 com.hydrokarbs.engine.port.SessionEventPort#publish(com.hydrokarbs.engine.event.SessionEvent):void
 com.hydrokarbs.engine.port.SessionEventPort#subscribe(java.lang.Class,int,java.util.function.Consumer):java.lang.AutoCloseable
 com.hydrokarbs.engine.port.SessionEventPort#subscribe(java.lang.Class,java.util.function.Consumer):java.lang.AutoCloseable
-com.hydrokarbs.engine.port.SessionPort#attrs():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.port.SessionPort#currentInstance():java.util.Optional
 com.hydrokarbs.engine.port.SessionPort#events():com.hydrokarbs.engine.port.SessionEventPort
 com.hydrokarbs.engine.port.SessionPort#id():com.hydrokarbs.engine.session.SessionId
@@ -727,7 +729,6 @@ com.hydrokarbs.engine.port.SessionServices#equals(java.lang.Object):boolean
 com.hydrokarbs.engine.port.SessionServices#hashCode():int
 com.hydrokarbs.engine.port.SessionServices#self():com.hydrokarbs.engine.port.SessionPort
 com.hydrokarbs.engine.port.SessionServices#toString():java.lang.String
-com.hydrokarbs.engine.port.SessionView#attrs():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.engine.port.SessionView#component(java.lang.Class):com.hydrokarbs.engine.component.SessionComponent
 com.hydrokarbs.engine.port.SessionView#components(java.lang.Class):java.util.List
 com.hydrokarbs.engine.port.SessionView#id():com.hydrokarbs.engine.session.SessionId
@@ -811,66 +812,15 @@ com.hydrokarbs.engine.session.TransitionIntent#hashCode():int
 com.hydrokarbs.engine.session.TransitionIntent#payload():com.hydrokarbs.engine.session.Handoff
 com.hydrokarbs.engine.session.TransitionIntent#target():com.hydrokarbs.engine.session.MatchModeSelection
 com.hydrokarbs.engine.session.TransitionIntent#toString():java.lang.String
-com.hydrokarbs.map.InteractPoint#anchor():java.lang.String
-com.hydrokarbs.map.InteractPoint#equals(java.lang.Object):boolean
-com.hydrokarbs.map.InteractPoint#hashCode():int
-com.hydrokarbs.map.InteractPoint#id():java.lang.String
-com.hydrokarbs.map.InteractPoint#pos():[D
-com.hydrokarbs.map.InteractPoint#radius():double
-com.hydrokarbs.map.InteractPoint#tag():java.lang.String
-com.hydrokarbs.map.InteractPoint#toString():java.lang.String
-com.hydrokarbs.map.MapDefinition#bounds():com.hydrokarbs.map.MapDefinition$Bounds
-com.hydrokarbs.map.MapDefinition#displayName():java.lang.String
+com.hydrokarbs.map.MapDefinition#TAGS:com.hydrokarbs.engine.AttributeBag$Key
 com.hydrokarbs.map.MapDefinition#equals(java.lang.Object):boolean
 com.hydrokarbs.map.MapDefinition#hashCode():int
 com.hydrokarbs.map.MapDefinition#id():java.lang.String
-com.hydrokarbs.map.MapDefinition#interactPoints():java.util.List
-com.hydrokarbs.map.MapDefinition#metadata():java.util.Map
-com.hydrokarbs.map.MapDefinition#regions():com.hydrokarbs.map.RegionSet
+com.hydrokarbs.map.MapDefinition#metadata():com.hydrokarbs.engine.AttributeBag
 com.hydrokarbs.map.MapDefinition#resetStrategy():com.hydrokarbs.engine.port.ResetStrategy
-com.hydrokarbs.map.MapDefinition#spawns():java.util.Map
-com.hydrokarbs.map.MapDefinition#spawns(java.lang.String):java.util.List
 com.hydrokarbs.map.MapDefinition#tags():java.util.Set
 com.hydrokarbs.map.MapDefinition#toString():java.lang.String
-com.hydrokarbs.map.MapDefinition#world():java.lang.String
-com.hydrokarbs.map.MapDefinition$Bounds#equals(java.lang.Object):boolean
-com.hydrokarbs.map.MapDefinition$Bounds#hashCode():int
-com.hydrokarbs.map.MapDefinition$Bounds#max():[D
-com.hydrokarbs.map.MapDefinition$Bounds#min():[D
-com.hydrokarbs.map.MapDefinition$Bounds#toString():java.lang.String
-com.hydrokarbs.map.NamedRegion#center():[D
-com.hydrokarbs.map.NamedRegion#contains([D):boolean
-com.hydrokarbs.map.NamedRegion#cuboid(java.lang.String,[D,[D,java.util.Set):com.hydrokarbs.map.NamedRegion
-com.hydrokarbs.map.NamedRegion#cylinder(java.lang.String,[D,double,double,java.util.Set):com.hydrokarbs.map.NamedRegion
-com.hydrokarbs.map.NamedRegion#equals(java.lang.Object):boolean
-com.hydrokarbs.map.NamedRegion#hashCode():int
-com.hydrokarbs.map.NamedRegion#height():double
-com.hydrokarbs.map.NamedRegion#id():java.lang.String
-com.hydrokarbs.map.NamedRegion#max():[D
-com.hydrokarbs.map.NamedRegion#min():[D
-com.hydrokarbs.map.NamedRegion#radius():double
-com.hydrokarbs.map.NamedRegion#sphere(java.lang.String,[D,double,java.util.Set):com.hydrokarbs.map.NamedRegion
-com.hydrokarbs.map.NamedRegion#tags():java.util.Set
-com.hydrokarbs.map.NamedRegion#toString():java.lang.String
-com.hydrokarbs.map.NamedRegion#type():com.hydrokarbs.map.NamedRegion$RegionType
-com.hydrokarbs.map.NamedRegion$RegionType#CUBOID:com.hydrokarbs.map.NamedRegion$RegionType
-com.hydrokarbs.map.NamedRegion$RegionType#CYLINDER:com.hydrokarbs.map.NamedRegion$RegionType
-com.hydrokarbs.map.NamedRegion$RegionType#SPHERE:com.hydrokarbs.map.NamedRegion$RegionType
-com.hydrokarbs.map.NamedRegion$RegionType#valueOf(java.lang.String):com.hydrokarbs.map.NamedRegion$RegionType
-com.hydrokarbs.map.NamedRegion$RegionType#values():[Lcom.hydrokarbs.map.NamedRegion$RegionType;
-com.hydrokarbs.map.RegionSet#all():java.util.List
-com.hydrokarbs.map.RegionSet#byId(java.lang.String):java.util.Optional
-com.hydrokarbs.map.RegionSet#byTag(java.lang.String):java.util.List
-com.hydrokarbs.map.RegionSet#empty():com.hydrokarbs.map.RegionSet
-com.hydrokarbs.map.RegionSet#of(java.util.List):com.hydrokarbs.map.RegionSet
-com.hydrokarbs.map.RegionSet#size():int
-com.hydrokarbs.map.SpawnPoint#equals(java.lang.Object):boolean
-com.hydrokarbs.map.SpawnPoint#hashCode():int
-com.hydrokarbs.map.SpawnPoint#toString():java.lang.String
-com.hydrokarbs.map.SpawnPoint#x():double
-com.hydrokarbs.map.SpawnPoint#y():double
-com.hydrokarbs.map.SpawnPoint#yaw():float
-com.hydrokarbs.map.SpawnPoint#z():double""";
+com.hydrokarbs.map.MapDefinition#worldDirectoryPath():java.nio.file.Path""";
 
     /** 首建基线(7.5,2026-10-25;由 {@code snapshotLines()} 同算法生成后落盘常量)。 */
     private static final Set<String> BASELINE = Set.of(BASELINE_TEXT.split("\n"));

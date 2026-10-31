@@ -34,7 +34,8 @@ import com.hydrokarbs.map.MapDefinition;
  *
  * <p><b>规则表逐行落点</b>:调用方只有会话内核(获取在切换准备阶段、释放在切换完成/解散);
  * 同一 (map, session) 重复获取幂等返回同句柄并累加计数,并发获取合并到同一次复制;
- * 归零按句柄的 {@link ResetStrategy} 处置副本;复制源恒为模板目录,
+ * 归零按句柄的 {@link ResetStrategy} 处置副本;复制源恒为声明的世界目录
+ * (★v1.8 去模板根:声明按路径直交),
  * {@code REUSE_DIRTY} 的复用只发生在同会话(副本目录名含会话短码,天然不跨会话)。
  *
  * <p><b>两段线程纪律</b>(§3.7 接口注释 + §16.4 三律②):复制/删目录 = 注入的 IO 执行器
@@ -74,7 +75,6 @@ public final class WorldPortImpl implements WorldPort {
     }
 
     private final WorldLoader worldLoader;
-    private final Path templateRoot;
     private final Path copyRoot;
     private final Executor mainExecutor;
     private final Executor ioExecutor;
@@ -99,18 +99,16 @@ public final class WorldPortImpl implements WorldPort {
 
     /**
      * @param worldLoader          主线程世界装卸缝(生产 {@link BukkitWorldLoader})
-     * @param templateRoot         模板根(数据目录 {@code maps/templates/},§15.2)
      * @param copyRoot             副本根(生产 = Bukkit 世界容器目录;测试 = 临时目录)
      * @param mainExecutor         主线程执行器(生产 = Threads 回程口;测试 = 直跑)
      * @param ioExecutor           IO 执行器(生产 = 虚拟线程;测试 = 直跑/可控门闩)
      * @param prepareTimeout       获取整体超时(§3.5 防护④,生产 30s;测试注入短超时)
      * @param log                  日志
      */
-    public WorldPortImpl(WorldLoader worldLoader, Path templateRoot, Path copyRoot,
+    public WorldPortImpl(WorldLoader worldLoader, Path copyRoot,
                          Executor mainExecutor, Executor ioExecutor,
                          Duration prepareTimeout, Logger log) {
         this.worldLoader = java.util.Objects.requireNonNull(worldLoader, "worldLoader");
-        this.templateRoot = java.util.Objects.requireNonNull(templateRoot, "templateRoot");
         this.copyRoot = java.util.Objects.requireNonNull(copyRoot, "copyRoot");
         this.mainExecutor = java.util.Objects.requireNonNull(mainExecutor, "mainExecutor");
         this.ioExecutor = java.util.Objects.requireNonNull(ioExecutor, "ioExecutor");
@@ -143,24 +141,32 @@ public final class WorldPortImpl implements WorldPort {
             });
         }
         // 失败/超时统一清理钩子:future 以任何异常完成 → 摘 in-flight,
-        // 否则该 key 的后续获取会永远等一个已死的 future
+        // 否则该 key 的后续获取会永远等一个已死的 future。
+        // 对外完成点必须在摘除之后:pending 的等待者与完成钩子同栈唤醒,
+        // 直接暴露 pending 会让调用方先于摘除观察到异常(in-flight 必清被打破)
+        CompletableFuture<WorldHandle> observable = new CompletableFuture<>();
         pending.whenComplete((handle, err) -> {
             if (err != null) {
                 inFlight.remove(key, pending);
+                observable.completeExceptionally(err);
+            } else {
+                observable.complete(handle);
             }
         });
-        // ③~⑦ 复制 → 回主线程加载 → 入表发布(整体超时见返回处 orTimeout)
+        // ③~⑦ 复制 → 回主线程加载 → 入表发布(整体超时见 pending 的 orTimeout)
         prepare(key, map, forSession, pending);
-        return pending.orTimeout(prepareTimeoutMillis, TimeUnit.MILLISECONDS);
+        pending.orTimeout(prepareTimeoutMillis, TimeUnit.MILLISECONDS);
+        return observable;
     }
 
     /** ③~⑦:IO 复制(先清残留/复用)→ 主线程加载 → 入表 +1 → 清 in-flight → 完成。 */
     private void prepare(CountKey key, MapDefinition map, SessionId session,
                          CompletableFuture<WorldHandle> pending) {
         String instanceName = instanceNameOf(map, session);
-        Path templateDir = templateRoot.resolve(map.id());
+        // 复制源 = 声明自带的世界目录(★v1.8 去模板根:声明按路径直交)
+        Path templateDir = map.worldDirectoryPath();
         if (!Files.isDirectory(templateDir)) {
-            // 缺模板目录 → 同一失败路径(§3.7 规则表「模板」行):异常完成、未入表
+            // 缺声明目录 → 同一失败路径(§3.7 规则表「模板」行):异常完成、未入表
             pending.completeExceptionally(new IllegalStateException(
                     "地图模板目录缺失: " + templateDir + "(地图 " + map.id() + ")"));
             return;
@@ -370,7 +376,7 @@ public final class WorldPortImpl implements WorldPort {
 
     // ── 副本目录的复制与处置(安全边界在此) ─────────────────────────
 
-    /** 副本目录名 = 地图 id + "-" + 会话短码(§3.7 接口注释;2.1 shortCode 文件名安全化)。 */
+    /** 副本目录名 = 地图 id(声明目录名,路径派生)+ "-" + 会话短码(§3.7 接口注释;2.1 shortCode 文件名安全化)。 */
     private static String instanceNameOf(MapDefinition map, SessionId session) {
         return map.id() + "-" + session.shortCode();
     }

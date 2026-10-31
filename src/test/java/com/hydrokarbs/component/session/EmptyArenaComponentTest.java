@@ -66,10 +66,11 @@ class EmptyArenaComponentTest {
                     return List.of(probeMode);
                 }
             };
-            // 自理临时模板根 + 注册式地图(★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
-            java.nio.file.Path templatesRoot = com.hydrokarbs.testkit.MapTestKit.newTemplatesRoot();
-            MapRegistry maps = new MapRegistry(templatesRoot);
-            com.hydrokarbs.testkit.MapTestKit.registered(maps, templatesRoot, OfflineAssembly.map());
+            // 自理临时父目录 + 注册式地图(★文件式装载通道已删,造数走 MapTestKit 注册 fixture;
+            // ★v1.8 无模板根——声明按路径直交)
+            java.nio.file.Path mapsDir = com.hydrokarbs.testkit.MapTestKit.newMapsDir();
+            MapRegistry maps = new MapRegistry();
+            com.hydrokarbs.testkit.MapTestKit.registered(maps, mapsDir, "test_map", java.util.Set.of());
             service = new SessionServiceImpl.Builder()
                     .modes(modes)
                     .worlds(FakeWorldPort.immediate())

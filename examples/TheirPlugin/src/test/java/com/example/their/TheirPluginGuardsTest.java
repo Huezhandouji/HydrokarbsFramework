@@ -36,11 +36,11 @@ class TheirPluginGuardsTest {
                 "api 缺席 → 拒载(14.36)");
         assertTrue(TheirPlugin.shouldDisable(2, TheirPlugin.REQUIRED_API_VERSION),
                 "API_VERSION 低于要求 → 拒载(14.36)");
-        assertTrue(TheirPlugin.shouldDisable(5, TheirPlugin.REQUIRED_API_VERSION),
-                "v5 < 要求 6 → 拒载(14.36;★v1.7 起要求 6,能力标签机制退场)");
-        assertFalse(TheirPlugin.shouldDisable(6, TheirPlugin.REQUIRED_API_VERSION),
-                "恰好满足 → 放行(One-Version Rule,不要求更新面)");
+        assertTrue(TheirPlugin.shouldDisable(6, TheirPlugin.REQUIRED_API_VERSION),
+                "v6 < 要求 7 → 拒载(14.36;★v1.8 起要求 7,地图声明按路径直交 + 瘦身)");
         assertFalse(TheirPlugin.shouldDisable(7, TheirPlugin.REQUIRED_API_VERSION),
+                "恰好满足 → 放行(One-Version Rule,不要求更新面)");
+        assertFalse(TheirPlugin.shouldDisable(8, TheirPlugin.REQUIRED_API_VERSION),
                 "更高版本 → 放行(只增不减,D7)");
     }
 

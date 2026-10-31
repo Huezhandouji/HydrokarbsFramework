@@ -2,131 +2,101 @@ package com.hydrokarbs.engine;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import com.hydrokarbs.engine.component.MatchModeComponent;
 
 /**
- * 按命名空间隔离的键值袋(02-核心概念 §2.7)。
+ * 地图声明词料容器:纯值容器,零 Bukkit 依赖。
  *
- * <p><b>加严①</b>:实例 attrs 与参赛者 attrs 随实例 {@code close()} 整体销毁,
- * {@code Handoff} 是实例数据唯一合法「带出去」通道(容器在 1.3 落实;
- * 跨切换存活的会话级状态寄居会话级组件,随解散全灭)。
+ * <p><b>定位</b>:声明级单写方、构造即冻结——{@link Builder} 是唯一写口,写只发生在
+ * 声明装配期;{@link #empty()} 返回共享空实例。构造后 {@code values} 经
+ * {@link Map#copyOf} 结构不可变,本类不提供任何公开写口(§2.7「状态唯一」;
+ * 14.26 状态写入归属:写入方只有声明构造方一次)。
  *
- * <p><b>加严②</b>:命名空间 = 组件 id——组件只能在自己名下写。
- * {@link #set} 带开发期断言(默认开、生产可经 {@link #setNamespaceCheckEnabled} 关):
- * 用 {@code StackWalker} 找调用栈上最近的 {@link MatchModeComponent} 子类帧,
- * 断言键的 namespace 即该组件的 id。跨组件共享走状态主人的强类型读口,
- * 不开放裸写(「状态唯一」的推论)。
+ * <p><b>与旧属性袋的分界(ADR-0016 退场机制)</b>:旧 {@code engine/AttributeBag}
+ * 承担运行期实例状态——带命名空间断言、组件授权表,并随实例 {@code close()} 整体
+ * 销毁;本类只承载地图声明的静态词料:<b>无命名空间断言、无组件授权表、不参与实例
+ * {@code close()} 链</b>,写方只有声明构造方一次,构造即冻结。两者仅沿用 FQCN,
+ * 机制互不共享。
  *
- * <p>找不到组件帧的调用(容器/会话壳,如写 {@code session} 命名空间的内核属性)
- * 只允许经包内 {@code setUnchecked}——公开 {@code set} 对无组件帧的调用直接拒绝,
- * 这是「session 命名空间只有内核可写」的机械收口。
+ * <p><b>读口语义</b>:{@link #get} 在键不存在或值不是 {@code key.type()} 实例时
+ * 返回 {@link Optional#empty()};{@link #getOrDefault} 同情形返回 fallback;
+ * {@link #has} 只问键是否存在,不论值类型。
  */
 public final class AttributeBag {
 
-    /** 属性键三元组:命名空间(组件 id)+ 名字 + 值类型。 */
-    public record Key<T>(String namespace, String name, Class<T> type) {
+    /** 词料键:名字 + 值类型(类型是读口的运行期校验依据;无命名空间分量)。 */
+    public record Key<T>(String name, Class<T> type) {
 
-        public static <T> Key<T> of(String namespace, String name, Class<T> type) {
-            return new Key<>(namespace, name, type);
+        public Key {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+        }
+
+        public static <T> Key<T> of(String name, Class<T> type) {
+            return new Key<>(name, type);
         }
     }
 
-    /** 开发期命名空间断言开关:默认开,生产可关(断言只为开发期执法,不承担运行期正确性)。 */
-    private static volatile boolean namespaceCheckEnabled = true;
+    /** 共享空实例(无词料;不可变,可按引用复用)。 */
+    private static final AttributeBag EMPTY = new AttributeBag(Map.of());
 
-    private final Map<Key<?>, Object> values = new HashMap<>();
+    private final Map<Key<?>, Object> values;
 
-    /** 授权视图:组件 id → 组件类(容器装配完组件后灌入;供栈帧反查「调用组件 id」)。 */
-    private final Map<String, Class<?>> componentTypes = new HashMap<>();
-
-    public static void setNamespaceCheckEnabled(boolean enabled) {
-        namespaceCheckEnabled = enabled;
+    /** 私有构造:入表即拷贝为不可变映射,外部无法再改词料集合。 */
+    private AttributeBag(Map<Key<?>, Object> values) {
+        this.values = Map.copyOf(values);
     }
 
-    public static boolean isNamespaceCheckEnabled() {
-        return namespaceCheckEnabled;
+    /** 无词料声明使用的共享空实例。 */
+    public static AttributeBag empty() {
+        return EMPTY;
     }
+
+    // ── 读口(三件;无任何公开写口) ──────────────────────────────
 
     /**
-     * 写入(仅组件可经本口):开发期断言命名空间 = 调用组件自身的 id。
-     * 断言失败抛 {@link IllegalStateException},消息点名:调用组件 id、键的 namespace、键名。
+     * 取值:键不存在或值类型与键声明不符({@code key.type().isInstance(value)} 为
+     * {@code false})返回 {@link Optional#empty()}。
      */
-    public <T> void set(Key<T> key, T value) {
-        if (namespaceCheckEnabled) {
-            Class<?> frame = nearestComponentFrame();
-            if (frame == null) {
-                throw new IllegalStateException(
-                        "AttributeBag#set 只允许组件调用(栈上无组件帧);框架/会话壳请经包内 setUnchecked 写入");
-            }
-            Class<?> declared = key.namespace() != null ? componentTypes.get(key.namespace()) : null;
-            if (declared != frame) {
-                throw new IllegalStateException("命名空间断言失败:调用组件 id=" + componentIdOf(frame)
-                        + ",键 namespace=" + key.namespace() + ",键名=" + key.name());
-            }
-        }
-        values.put(key, value);
-    }
-
-    /** 取值:键不存在返回 empty。 */
     public <T> Optional<T> get(Key<T> key) {
+        Objects.requireNonNull(key, "key");
         Object value = values.get(key);
-        if (value == null) {
+        if (!key.type().isInstance(value)) {
             return Optional.empty();
         }
         return Optional.of(key.type().cast(value));
     }
 
-    /** 取值,键不存在返回 fallback。 */
+    /** 取值:键不存在或值类型不符返回 {@code fallback}。 */
     public <T> T getOrDefault(Key<T> key, T fallback) {
         return get(key).orElse(fallback);
     }
 
-    /** 是否存在该键(不论取值类型)。 */
+    /** 是否存在该键——不论取值类型(键身份 = 名字 + 类型,见 {@link Key})。 */
     public boolean has(Key<?> key) {
+        Objects.requireNonNull(key, "key");
         return values.containsKey(key);
     }
 
-    // ── 包内收口(容器/会话壳专用) ────────────────────────────────
+    // ── 构造写口(唯一;声明装配期使用) ──────────────────────────
 
-    /** 包内写口:无组件帧的调用方(容器/会话壳,写 {@code session} 等内核命名空间)唯一合法通道。 */
-    void setUnchecked(Key<?> key, Object value) {
-        values.put(key, value);
-    }
+    /** 词料装配器:构造期逐项覆盖式入表,{@link #build()} 一次冻结。 */
+    public static final class Builder {
 
-    // ── 装配期登记口(公开面只对容器) ─────────────────────────────
+        private final Map<Key<?>, Object> values = new HashMap<>();
 
-    /**
-     * 公开登记口:仅限实例/会话容器在装配期调用——组件装配完成后灌入
-     * (组件 id → 组件类)授权表,供 {@link #set} 的命名空间断言反查;
-     * 业务代码禁止调用。
-     */
-    public void bindComponent(String componentId, Class<?> componentType) {
-        componentTypes.put(componentId, componentType);
-    }
+        /** 覆盖式入表(同键后写胜);键与值均不允许 {@code null}。 */
+        public <T> Builder put(Key<T> key, T value) {
+            Objects.requireNonNull(key, "key");
+            Objects.requireNonNull(value, "value");
+            values.put(key, value);
+            return this;
+        }
 
-    // ── 内部:栈帧定位与反查 ─────────────────────────────────────
-
-    /** 调用栈上最近的组件子类声明类;无组件帧返回 null。 */
-    private static Class<?> nearestComponentFrame() {
-        return StackWalker.getInstance(Set.of(StackWalker.Option.RETAIN_CLASS_REFERENCE))
-                .walk(frames -> frames
-                        .map(StackWalker.StackFrame::getDeclaringClass)
-                        .filter(owner -> owner != AttributeBag.class
-                                && MatchModeComponent.class.isAssignableFrom(owner))
-                        .findFirst()
-                        .orElse(null));
-    }
-
-    /** 反查组件类对应的已登记 id(诊断文案用;同类多实例罕见边界下取第一个匹配)。 */
-    private String componentIdOf(Class<?> frame) {
-        String found = componentTypes.entrySet().stream()
-                .filter(entry -> entry.getValue() == frame)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.joining("/"));
-        return found.isEmpty() ? frame.getName() + "(未登记)" : found;
+        /** 空表返回共享 {@link AttributeBag#empty()},否则以当前表构造新实例(入表即拷贝)。 */
+        public AttributeBag build() {
+            return values.isEmpty() ? empty() : new AttributeBag(values);
+        }
     }
 }

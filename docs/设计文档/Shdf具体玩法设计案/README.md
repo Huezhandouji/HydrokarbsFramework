@@ -11,6 +11,7 @@
 > ④**验收计数**:§16.2 现为 **★1~★55 共 55 条**(v1.1/1.2 新增 ★41~★55,框架线 7.5/8.1 建立);本目录旧文的"40 条"为 v1.0 时点数。
 > ⑤**术语**:v3.2 起无 `joinPolicy` 字段(入场裁决 = JoinControlComponent,../03 §3.2.1);引擎切换 B3 角色兜底 v3.1 已删(清场单闸 = `RoleComponent.stop`,08/09)。
 > ⑥**★v1.7 对齐注(25 号修正案,能力标签机制退场)**:框架侧字符串能力标签机制全链退役(注册表/A2 校验/`registerCapability` 两法/各声明分量)——本目录 §8.8 的标签软依赖口径与玩法线施工子阶段 **3.3(Capability 软依赖机制)** 读作**历史口径**;**外部能力 = 会话组件桥接**:提供方(或宿主自持防腐层)经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接会话组件,消费方组件 `requires`/`requiresOptional` 类型化声明依赖(装配期响亮、运行期 quarantine;软依赖 = `requiresOptional`,★21/★60);`API_VERSION` ★v1.7 起 = 6、验收计数现为 **60 条**(本行读数优先于 ③/④ 的旧值);玩法线正文不改写。
+> ⑦**★v1.8 对齐注(26 号修正案,地图注册去模板根——声明直交路径 + MapDefinition 瘦身)**:框架侧「模板寄居框架数据目录 `maps/templates/`」约定退场——`MapDefinition` 收为 `(worldDirectoryPath, metaAttributes)` 两分量:世界目录由声明直指任意路径、**注册前落盘就位**(先落盘世界目录 → 构造声明 → registerMap,14.39),tags/处置策略走 `MetaAttributes` 约定键 `map.tags`/`map.reset-strategy`,id = 声明目录名路径派生(目录查重/副本命名/钉图键同源);本目录涉及 `registerMap`/地图构造的正文段落读作**新形状**;`API_VERSION` ★v1.8 起 = 7、验收计数现为 **64 条**(本行读数优先于 ③/④ 的旧值);玩法线正文不改写。
 
 ## 定位
 

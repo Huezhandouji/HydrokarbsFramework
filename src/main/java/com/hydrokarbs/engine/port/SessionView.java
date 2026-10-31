@@ -2,7 +2,6 @@ package com.hydrokarbs.engine.port;
 
 import java.util.List;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SessionMember;
@@ -18,7 +17,7 @@ import com.hydrokarbs.engine.session.SessionMember;
  * 类型化依赖 + 装配闸表达)。
  *
  * <p><b>只读是架构纪律 + review 条款</b>(§2.8-决断四、14.29):
- * {@link #attrs()} 的只读约定为仅 get;实例组件不得写入会话组件。
+ * 实例组件不得写入会话组件。
  * <b>本视图无 {@code events()}</b>——第一版实例组件不得订阅会话事件(未决 §11-Q7)。
  */
 public interface SessionView {
@@ -28,9 +27,6 @@ public interface SessionView {
 
     /** 成员只读快照(不可变列表)。 */
     List<SessionMember> members();
-
-    /** 会话级键值袋(只读约定:仅 get,§14.29;命名空间 = 组件 id)。 */
-    AttributeBag attrs();
 
     /** 按类型取<b>声明序第一个</b>可赋值会话组件;无 → null(★模式接入会话能力)。 */
     <T extends SessionComponent> T component(Class<T> type);

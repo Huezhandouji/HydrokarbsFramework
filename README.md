@@ -17,7 +17,11 @@ Minecraft 小游戏框架:引擎只提供「实例容器 + 组件派发 + 端口
 ```
 
 - 基线:Java 21 / PaperMC 1.21.11 / Gradle Kotlin DSL。
-- 测试全部离线可跑:零 Bukkit import,Bukkit 类型位置一律传 null。
+- 测试全部离线可跑:零 Bukkit **静态触碰**(不调任何 Bukkit 静态方法;类型签名可引用
+  Bukkit 类型,值经动态代理占位或传 null——★v1.9/27 号 §1-D1:原「零 Bukkit import,
+  类型位置一律传 null」为 v2.3 前措辞,`FakeWorldPort#proxyWorld` 起类型签名引用 +
+  代理占位即既有先例,27 号 `SwitchHarness` 记录型清场 lambda 沿用之;零静态触碰
+  纪律不变)。
 
 ## 阶段顺序约束(v4/2.6)
 

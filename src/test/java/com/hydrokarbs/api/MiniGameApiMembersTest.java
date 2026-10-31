@@ -46,17 +46,12 @@ class MiniGameApiMembersTest {
     @BeforeEach
     void setUp() {
         // gated_mode:入场裁决恒拒(Rejected 兜底链路的实例侧门)
-        harness = new OfflineApi(templatesRoot(), FakeWorldPort.immediate(),
+        harness = new OfflineApi(FakeWorldPort.immediate(),
                 OfflineApi.mode(MODE_ID, OfflineApi.TAG),
                 gatedMode(GATED_MODE_ID));
         // 注册式地图(标签 common):让首切实例就位——入场裁决在实例路径上才有门
-        // (★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
-        MapTestKit.registered(harness.maps, templatesRoot(), "file_map", OfflineApi.TAG);
-    }
-
-    /** 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定)。 */
-    private Path templatesRoot() {
-        return tempDir.resolve("maps").resolve("templates");
+        // (★文件式装载通道已删,造数走 MapTestKit 注册 fixture;★v1.8 无模板根)
+        MapTestKit.registered(harness.maps, tempDir, "file_map", OfflineApi.TAG);
     }
 
     // ── ★42 joinSession/leaveSession 端到端 ──────────────────────────
@@ -133,8 +128,7 @@ class MiniGameApiMembersTest {
     private static com.hydrokarbs.engine.mode.MatchMode gatedMode(String id) {
         return new com.hydrokarbs.engine.mode.MatchMode.Builder(id)
                 .mapTags(OfflineApi.TAG)
-                .meta(new com.hydrokarbs.engine.mode.MatchModeMeta(false, 0, 100,
-                        com.hydrokarbs.engine.mode.MatchModeMeta.DefaultTransition.STAY))
+                .meta(new com.hydrokarbs.engine.mode.MatchModeMeta(false, 0, 100))
                 .addComponent("gate", new AdmissionGateComponent.Spec(
                         player -> new JoinDecision(JoinDecision.Kind.REJECT, "测试拒绝")))
                 .build();

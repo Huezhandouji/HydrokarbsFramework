@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -17,6 +16,7 @@ import java.util.logging.Logger;
 
 import org.junit.jupiter.api.Test;
 
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.MatchModeInstanceEvent;
 import com.hydrokarbs.engine.mode.MatchMode;
@@ -158,7 +158,7 @@ class InstanceLifecycleSmokeTest {
 
     private static MatchMode mode(String id, MatchModeComponent.Specification<?>... specs) {
         MatchMode.Builder builder = new MatchMode.Builder(id)
-                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100));
         int index = 1;
         for (MatchModeComponent.Specification<?> spec : specs) {
             builder.addComponent("c" + index++, spec);
@@ -195,7 +195,7 @@ class InstanceLifecycleSmokeTest {
     }
 
     private static MapDefinition map() {
-        return new MapDefinition("map1", "world1", Set.of(), Map.of());
+        return new MapDefinition(java.nio.file.Path.of("map1"), AttributeBag.empty());
     }
 
     private static MatchModeInstance instance(MatchMode mode, RecordingSession session, FakePlatform platform) {

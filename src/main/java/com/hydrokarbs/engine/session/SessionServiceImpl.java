@@ -2,7 +2,6 @@ package com.hydrokarbs.engine.session;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,19 +12,22 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-import com.hydrokarbs.engine.AttributeBag;
+import org.bukkit.World;
+
 import com.hydrokarbs.engine.EngineTicker;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.event.SessionEvent;
 import com.hydrokarbs.engine.instance.MatchModeInstance;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeMeta;
+import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.EngineServices;
 import com.hydrokarbs.engine.port.JoinAdmission;
 import com.hydrokarbs.engine.port.JoinContext;
@@ -57,15 +59,22 @@ import com.hydrokarbs.map.MapRegistry;
  *       (外部载荷覆盖旧实例自报)→ B4 造新实例两段生效(名册原地位移经入场裁决
  *       触发点①)→ B5 落位/记切换时刻/发完成事件/future 成功/旧世界句柄释放接缝;</li>
  *   <li><b>回退与生死</b>:B 失败两级判据(装配/唤醒抛 = 直接回退;生效抛 = 先全停
- *       再回退)→ 一级递归切换回退模式(配置注入的 id,源码零字面量,带豁免标记)→
- *       二级解散(全员传送主城出生点 + 兜底清态,绝不出现「会话有成员而无实例」)→
- *       三级传送失败保持原地 + 通用安全态清理兜底。原请求以拒绝完结,最终去向经
- *       会话事件告知。</li>
+ *       再回退)→ 一级递归切换回退模式(配置注入的 id,源码零字面量,带豁免标记;
+ *       ★v1.13/31 号:回退无效(空串/未注册)或回退切换被拒 → SEVERE + 即时二级
+ *       解散,回退链单点收敛在 fallbackSwitch;默认配置下出厂空模式兜底,回退必
+ *       有其落点)→ 二级解散(全员传送主城出生点 + 兜底清态,绝不出现「会话有
+ *       成员而无实例」)→ 三级传送失败保持原地 + 通用安全态清理兜底。原请求以
+ *       拒绝完结,最终去向经会话事件告知。</li>
  * </ol>
  *
  * <p><b>引擎不直碰平台</b>:成员传送与通用安全态清理经构造注入的函数落在 L0
  * (设计未细化,最小自洽:主城出生点 = 服务器主世界出生点,由装配方提供);
  * 主线程回程经注入的执行器(生产行 = Threads 回程口,离线测试直通)。
+ * ★v1.9(27 号):世界清场两口同落本注入模式——切换清场 {@code worldClearer}
+ * (旧世界遗留人员 → 目标世界出生点;B3.5 同世界先行 / B5 异图殿后)与解散清场
+ * {@code hubWorldClearer}(地图世界遗留人员 → 主世界出生点;dissolveNow finally,
+ * 与 hubRelocator 组成「先名册后世界」);全部 best-effort WARN,失败不阻塞
+ * 切换/解散,卸载失败保留目录(23 号)仍为最后防线。
  *
  * <p><b>★v4(2.6)接线扩展——公开方法签名不变</b>:① {@code create} 内装配会话级
  * 组件(先于首个实例就绪,§3.8);② {@code dissolve} 内逆序 stop + 登记资源回收;
@@ -96,6 +105,8 @@ public final class SessionServiceImpl implements SessionService {
     private final Executor mainExecutor;
     private final Consumer<Collection<UUID>> hubRelocator;
     private final Consumer<Collection<UUID>> safeStateCleaner;
+    private final BiConsumer<World, World> worldClearer;      // ★v1.9(27 号):切换世界清场(旧世界 → 目标世界出生点)
+    private final Consumer<World> hubWorldClearer;            // ★v1.9(27 号):解散世界清场(地图世界 → 主世界出生点)
     private final Consumer<SessionEvent> sessionEventMirror;
     private final Logger log;
 
@@ -116,6 +127,8 @@ public final class SessionServiceImpl implements SessionService {
         this.mainExecutor = builder.mainExecutor;
         this.hubRelocator = builder.hubRelocator;
         this.safeStateCleaner = builder.safeStateCleaner;
+        this.worldClearer = builder.worldClearer;
+        this.hubWorldClearer = builder.hubWorldClearer;
         this.sessionEventMirror = builder.sessionEventMirror;
         this.log = builder.logger;
     }
@@ -160,14 +173,27 @@ public final class SessionServiceImpl implements SessionService {
         log.log(Level.INFO, "已创建会话 {0}(拓扑 {1},初始模式 {2},会话组件 {3} 个,共 {4} 个存活会话)",
                 new Object[] { spec.id().value(), policy.topology(), spec.initialModeId(),
                         spec.sessionComponents().size(), sessions.size() });
-        // 首次切换装配初始模式(首切不受最短驻留限制)。为空或未注册 → WARN + 会话保留
-        // 待后补切换——模式晚注册时服主可后补,不炸启动;引擎对空串照走 A1 未注册拒绝,零特判。
+        // 首次切换装配初始模式(首切不受最短驻留限制)。为空或未注册 → WARN + 泊回退
+        // (★v1.13/31 号:不再「无实例驻留」;回退亦失败即解散)。泊回退走完整 B5 落位
+        // 会记切换时刻——模式晚注册时服主可后补切换,但后补非 force 请求在最短驻留窗口
+        // 内被防护①拒(相对旧「WARN+保留从未切换、立即可切」是行为回退,31 号登记):
+        // 宿主可传 force(MatchModeSelection 在 api 白名单)或等窗口过去。
+        // 所有权判据(31 号复审 S1):本回调只接管「同步段被拒/A6 失败」——完结时状态
+        // 回 RUNNING 且无挂起计划;B 段失败(rollback 完结 future 时仍在 SWITCHING,
+        // 其自身会调 fallbackSwitch)、隔离(onQuarantine 尾部自调)、解散(DISSOLVING)
+        // 各有归属,此处重入会造成双重回退:第二发被重入守卫拒 → 误 SEVERE + 强制解散
+        // (fallback 明明有效,违需求 1「仅 fallback 无效才解散」)。
         beginSwitch(session, MatchModeSelection.of(spec.initialModeId()), Handoff.empty(), EndResult.nowhere())
                 .whenComplete((result, err) -> {
-                    if (result instanceof SwitchResult.Rejected rejected) {
-                        log.log(Level.WARNING, "会话 {0} 初始模式 {1} 装配失败(为空或未注册;会话保留待后补切换): {2}",
-                                new Object[] { spec.id().value(), spec.initialModeId(), rejected.detail() });
+                    if (!(result instanceof SwitchResult.Rejected rejected)) {
+                        return;
                     }
+                    if (session.state() != SessionState.RUNNING || session.pendingSwitch() != null) {
+                        return;             // 已由 rollback/onQuarantine/dissolveNow 接管(所有权判据,见上注)
+                    }
+                    log.log(Level.WARNING, "会话 {0} 初始模式 {1} 装配失败(为空或未注册;泊回退模式待后补切换): {2}",
+                            new Object[] { spec.id().value(), spec.initialModeId(), rejected.detail() });
+                    fallbackSwitch(session, EndResult.nowhere());
                 });
         return session;
     }
@@ -193,7 +219,7 @@ public final class SessionServiceImpl implements SessionService {
     /**
      * 会话组件 id 推导(单一落点):供给面类型的简单名——同一会话内同供给面类型的
      * 两个 Spec 会撞 id,由注册表 bind 的 id 去重响亮拒绝(待裁决⑤口径)。
-     * id 用作组件命名空间(attrs)与依赖诊断点名;不进快照,跨会话共享 SPEC 无影响。
+     * id 用作组件 id 与依赖诊断点名;不进快照,跨会话共享 SPEC 无影响。
      */
     private static String deriveComponentId(SessionComponent.Specification<?> spec) {
         return spec.providedType().getSimpleName();
@@ -309,16 +335,15 @@ public final class SessionServiceImpl implements SessionService {
                     "目标模式依赖校验失败: " + e.getMessage()));
             return future;
         }
-        // 防护①:最短驻留(非豁免请求一律受限;从未切换过的会话首切不设限)
-        if (!target.force() && session.lastSwitchTick() != Session.NO_SWITCH_YET) {
-            long dwell = session.ticks() - session.lastSwitchTick();
-            long required = policy.minDwellTicks();
-            if (dwell < required) {
-                long remaining = required - dwell;
+        // 防护①:最短驻留(非豁免请求一律受限;判据单一落点 dwellRemaining,
+        // 与 driveAutoSwitch 的回退预检共用同一公式,★v1.13/31 号提取)
+        if (!target.force()) {
+            long remaining = dwellRemaining(session);
+            if (remaining > 0) {
                 log.log(Level.WARNING, "会话 {0} 最短驻留不足,切换被拒: 剩 {1} tick(要求 {2})",
-                        new Object[] { session.id().value(), remaining, required });
+                        new Object[] { session.id().value(), remaining, policy.minDwellTicks() });
                 future.complete(rejected(SwitchResult.Reason.REJECTED_BY_TARGET_MODE,
-                        "驻留不足,剩 " + remaining + " tick(要求 " + required + ")"));
+                        "驻留不足,剩 " + remaining + " tick(要求 " + policy.minDwellTicks() + ")"));
                 return future;
             }
         }
@@ -355,7 +380,9 @@ public final class SessionServiceImpl implements SessionService {
         session.events().publish(SessionEvent.ModeSwitchStarted.of(session.id(), fromMode, plan.mode.id()));
     }
 
-    /** A3 地图解析:指定地图用之;否则按模式标签 × 会话地图池过滤,空集拒绝;非空取装载序第一张。 */
+    /** A3 地图解析:指定地图用之;否则按模式标签 × 会话地图池过滤(模式侧空 mapTags
+     *  = 通配任意地图,经 MatchModeRegistry.matchesTags 单一判据,31 号决策 B),空集拒绝;
+     *  非空取装载序第一张。 */
     private MapDefinition resolveMap(Session session, MatchMode mode, MatchModeSelection target) {
         if (target.mapId().isPresent()) {
             String mapId = target.mapId().get();
@@ -368,7 +395,7 @@ public final class SessionServiceImpl implements SessionService {
         List<String> pool = session.spec().mapPool();
         List<MapDefinition> candidates = new ArrayList<>();
         for (MapDefinition candidate : maps.all()) {
-            if (Collections.disjoint(mode.mapTags(), candidate.tags())) {
+            if (!MatchModeRegistry.matchesTags(mode, candidate)) {
                 continue;
             }
             if (!pool.isEmpty() && !pool.contains(candidate.id())) {
@@ -381,6 +408,19 @@ public final class SessionServiceImpl implements SessionService {
                     + (pool.isEmpty() ? "" : ",会话地图池 " + pool));
         }
         return candidates.get(0);       // 最小实现:装载序第一张(自动挑图的占位策略)
+    }
+
+    /**
+     * 驻余判据(★v1.13/31 号提取,单一落点):距最短驻留还差多少 tick,
+     * {@code <= 0} = 驻留已满;从未切换过({@code NO_SWITCH_YET})首切不设限 → 恒 0。
+     * beginSwitch 防护①(非豁免请求拒)与 driveAutoSwitch 的回退预检(节流回填)
+     * 共用本公式——豁免条件差异(force 标记)在各自调用点,公式不复制。
+     */
+    private long dwellRemaining(Session session) {
+        if (session.lastSwitchTick() == Session.NO_SWITCH_YET) {
+            return 0L;
+        }
+        return Math.max(0L, policy.minDwellTicks() - (session.ticks() - session.lastSwitchTick()));
     }
 
     // ── 执行段 B(节拍器驱动,主线程单 tick 原子) ────────────────────
@@ -411,6 +451,21 @@ public final class SessionServiceImpl implements SessionService {
             session.currentInstance().ifPresent(MatchModeInstance::close);
             // B3 合并:外部载荷覆盖旧实例自报(方向写反 = 外部指令被旧实例劫持)
             Handoff merged = Handoff.merge(outgoing, plan.payload);
+            // ★v1.9(27 号)B3.5 世界清场(同世界复用:先行于 B4 组件摆放)。
+            // 判据 = org.bukkit.World 引用相等(==,非 instanceName/句柄相等基准):
+            // REUSE_DIRTY 同世界归零后再获取经 prepareCopyDir 复载产生【新的】World 对象
+            // (引用必不等 → 正确走 B5 异图清场),引用相等只可能来自端口表命中同句柄
+            // (同图重开,计数不归零无卸载)。空值分支:current 在 B5 换入前为 null
+            // (首切,含每次 create 的首切)→ 跳过本步;sameWorldReuse 一次计算供两处
+            // 门闩(此处与 B5 finally)。先行裁决:同世界清场对象 = 世界内全部在场者,
+            // 若殿后到 B5 finally 会把 startAll 刚摆好的位次整体拽回出生点——先行则
+            // 组件其后摆位,终态正确(同图重开「原地起步→出生点起步」为冻结语义变更,
+            // 27 号修正案明文登记;失败不阻塞,B4 照常)。
+            WorldHandle current = session.worldHandle();
+            boolean sameWorldReuse = current != null && current.world() == plan.world.world();
+            if (sameWorldReuse) {
+                clearWorldQuietly(current.world(), plan.world.world(), session.id());
+            }
             // B4 造新实例并两段生效(名册原地位移经入场裁决触发点①)
             MatchModeInstance next = plan.mode.createInstance(
                     session, plan.map, plan.cfg, plan.world, merged, engineServices);
@@ -436,7 +491,19 @@ public final class SessionServiceImpl implements SessionService {
                 // 释放旧句柄(§3.7 释放时机:切换完成之后;§14.19 try/finally)。
                 // 换图与同图重开都释放旧引用:同图复用时句柄未换(获取已把计数 +1),
                 // 计数减一后仍大于零,端口内部零卸载零处置——等价于「无释放动作」。
+                // ★v1.9(27 号)B5 世界清场(异图切换:殿后、紧贴释放接缝)——置于既有
+                // previousWorld 非 null 守卫【之内】(首切 previousWorld == null,守卫外
+                // 即 NPE),release 之前;时序 = 完成事件(ModeSwitchCompleted/future.complete)
+                // 之后、release 之前(事件订阅者可见同 tick 内事件派发时遗留人员尚未清)。
+                // 门闩 !sameWorldReuse:同图重开已由 B3.5 先行清场,finally 再清会把
+                // startAll 刚摆好的位次拽回出生点(恰一次)。清场把旧世界内遗留人员
+                // (组件只搬名册成员,此处兜底名册外滞留者)传往目标世界出生点;
+                // 失败 WARN 不阻塞,release 照发;世界仍有人时既有 disposeHandle
+                // 「unloadWorld false → SEVERE + 保留目录」(23 号)原样为最后防线。
                 if (previousWorld != null) {
+                    if (!sameWorldReuse) {
+                        clearWorldQuietly(previousWorld.world(), plan.world.world(), session.id());
+                    }
                     worlds.release(previousWorld);
                 }
             }
@@ -445,7 +512,8 @@ public final class SessionServiceImpl implements SessionService {
         }
     }
 
-    /** B 段失败回退:原请求以拒绝完结 → 会话回常态 → 递归切换回退模式(一级)。 */
+    /** B 段失败回退:原请求以拒绝完结 → 会话回常态 → 递归切换回退模式(一级;
+     *  故障自愈立即执行,不加驻留预检——回退目标再失败即二级解散终止,无循环死锁)。 */
     private void rollback(Session session, PendingSwitch plan, Throwable cause) {
         log.log(Level.SEVERE, "切换执行失败,进入回退: 会话 " + session.id().value()
                 + " 目标 " + plan.mode.id(), cause);
@@ -455,29 +523,75 @@ public final class SessionServiceImpl implements SessionService {
             session.transitionTo(SessionState.RUNNING);    // 旧实例已清、当前无实例,回常态再递归
         }
         session.setCurrentInstance(null);
-        fallbackSwitch(session);
+        fallbackSwitch(session, EndResult.nowhere());
     }
 
     /**
-     * 一级回退:递归切换到配置的回退模式(id 来自构造注入的配置字符串,源码零字面量;
-     * 回退是框架内部自愈,带豁免标记绕过人数下限与最短驻留)。回退亦失败 → 二级解散。
-     *
-     * <p><b>空值语义</b>:回退模式<b>未配置(空串)</b> → 跳过一级(fallback 切换)、
-     * 记 WARN 后直接二级解散兜底;回退模式<b>未注册</b> → 走既有路径
-     * (A1 拒绝 → whenComplete → 二级解散),机制零改动。
+     * 切换世界清场口(★v1.9/27 号;平台函数,L0 注入):best-effort——任何失败
+     * WARN 不阻塞切换/释放(沿用既有三级兜底语气),由调用方接缝继续原路径。
      */
-    private void fallbackSwitch(Session session) {
+    private void clearWorldQuietly(World from, World to, SessionId id) {
+        try {
+            worldClearer.accept(from, to);
+        } catch (Throwable t) {
+            log.log(Level.WARNING, "切换世界清场失败(不阻塞切换,遗留人员保持原地): 会话 " + id.value(), t);
+        }
+    }
+
+    /**
+     * 解散世界清场口(★v1.9/27 号;平台函数,L0 注入):best-effort——失败 WARN
+     * 不阻塞解散,finally 继续 discardSession → 归零卸载(卸载失败保留目录仍为
+     * 最后防线,23 号既有路径)。
+     */
+    private void clearWorldToHubQuietly(World world, SessionId id) {
+        try {
+            hubWorldClearer.accept(world);
+        } catch (Throwable t) {
+            log.log(Level.WARNING, "解散世界清场失败(不阻塞解散,遗留人员保持原地): 会话 " + id.value(), t);
+        }
+    }
+
+    /**
+     * 一级回退(★v1.13/31 号收敛):递归切换到配置的回退模式(id 来自构造注入的
+     * 配置字符串,源码零字面量;回退是框架内部自愈,带豁免标记绕过人数下限与
+     * 最短驻留——服务不变式)。回退亦失败 → 二级解散。
+     *
+     * <p><b>空值语义(31 号收紧)</b>:回退模式<b>无效(空串或未注册)</b> →
+     * <b>SEVERE</b>(原 WARN 跳级)+ 即时二级解散兜底({@code FALLBACK_DISSOLVE});
+     * 回退切换被拒/异常 → SEVERE(带 detail)+ 二级解散。出厂空模式经 SPI 注册后,
+     * 默认配置下回退必有其落点,空串/未注册只可能是配置错误——正常回退运行不再
+     * 与故障同形。{@code cause} 仅承载来源语义(执行失败/摘除回退/首切失败/
+     * 无意图结束),不改变判据。
+     *
+     * <p><b>重入护栏(31 号复审 S1)</b>:解散中、或已有任一切换在途(SWITCHING/
+     * 挂起计划,含他路已发起的回退)时本方法为 no-op——同一失败只允许一个回退
+     * 归属;不设此护栏时,第二发(如 create 回调与 rollback/onQuarantine 尾部
+     * 对同一失败各调一次)会被 beginSwitch 重入守卫拒,误走「回退被拒 → SEVERE +
+     * 解散」分支。driveAutoSwitch 的 ENDING 态调用不受影响(ENDING 不在护栏集)。
+     */
+    private void fallbackSwitch(Session session, EndResult cause) {
+        if (session.state() == SessionState.DISSOLVING
+                || session.state() == SessionState.SWITCHING
+                || session.pendingSwitch() != null) {
+            return;                     // 解散进行中/另有切换在途(含他路发起的回退):不重入(护栏见方法注)
+        }
         if (fallbackModeId.isBlank()) {
-            log.log(Level.WARNING, "会话 {0} 回退模式未配置: 跳过一级回退,直接二级解散兜底",
+            log.log(Level.SEVERE, "会话 {0} 回退模式未配置(无效回退): 直接二级解散兜底(绝不驻留无实例中间态)",
                     session.id().value());
             dissolveNow(session, DissolveReason.FALLBACK_DISSOLVE);
             return;
         }
         CompletableFuture<SwitchResult> fallback = beginSwitch(session,
                 new MatchModeSelection(fallbackModeId, Optional.empty(), true),
-                Handoff.empty(), EndResult.nowhere());
+                Handoff.empty(), cause);
         fallback.whenComplete((result, err) -> {
             if (err != null || result instanceof SwitchResult.Rejected) {
+                if (session.state() == SessionState.DISSOLVING) {
+                    return;             // future 因解散作废被拒(非回退目标问题):不告警、不重入
+                }
+                log.log(Level.SEVERE, "会话 {0} 回退切换被拒/异常,二级解散兜底: {1}",
+                        new Object[] { session.id().value(),
+                                err != null ? err : ((SwitchResult.Rejected) result).detail() });
                 dissolveNow(session, DissolveReason.FALLBACK_DISSOLVE);
             }
         });
@@ -486,8 +600,13 @@ public final class SessionServiceImpl implements SessionService {
     // ── 自动切换(触发来源②③:节拍器在 ENDING 后的下一 tick 驱动) ─────────
 
     /**
-     * ENDING 处置:读结束请求的显式意图;无意图时读模式缺省去向
-     * (回退/原地/轮换——轮换暂无轮换表配置,按回退降级处理)。
+     * ENDING 处置:读结束请求的显式意图;无显式去向回落配置的回退模式
+     * (★v1.13/31 号:缺省去向管线退场,读模式元数据的旧口径删除)。回退链三步:
+     * 空串先行即散(直呼 fallbackSwitch,其内 SEVERE + dissolveNow——即时解散
+     * 不等驻留,消灭空串下每拍 A1 拒绝的无限空转)→ 驻留不足则回填重试
+     * (瞬态节流,铁律 6:防「结束→切回退→再结束」风暴——自定义回退模式依赖
+     * 无意图结束自持时每窗口至多一轮)→ 驻留已满则带原因切回退(force 豁免
+     * 人数下限,服务不变式)。
      * ★ 机械闸门:调用栈必经节拍器(防护②后半),否则拒绝发起并保留请求待下一拍。
      */
     private void driveAutoSwitch(Session session) {
@@ -502,37 +621,27 @@ public final class SessionServiceImpl implements SessionService {
         }
         Session.EndNotice notice = notices.get(notices.size() - 1);    // 以最后一条为准
         EndResult result = notice.result();
-        MatchModeSelection selection;
-        Handoff payload;
         if (result.transition().isPresent()) {
             TransitionIntent intent = result.transition().get();
-            selection = intent.target();
-            payload = intent.payload();
-        } else {
-            String currentModeId = session.currentInstance().map(MatchModeInstance::modeId)
-                    .orElseGet(() -> session.spec().initialModeId());
-            selection = switch (defaultTransitionOf(currentModeId)) {
-                case STAY -> MatchModeSelection.of(currentModeId);      // 原地重开(同模式新实例)
-                case FALLBACK, ROTATION -> MatchModeSelection.of(fallbackModeId);  // 轮换暂按回退降级
-            };
-            payload = Handoff.empty();
+            beginSwitch(session, intent.target(), intent.payload(), result).whenComplete((outcome, err) -> {
+                // 同步段被拒(如最短驻留):回填结束请求,下一拍重试直至防护放行
+                if (err == null && outcome instanceof SwitchResult.Rejected
+                        && session.state() == SessionState.ENDING) {
+                    session.restoreEndNotices(notices);
+                }
+            });
+            return;
         }
-        beginSwitch(session, selection, payload, result).whenComplete((outcome, err) -> {
-            // 同步段被拒(如最短驻留):回填结束请求,下一拍重试直至防护放行
-            if (err == null && outcome instanceof SwitchResult.Rejected
-                    && session.state() == SessionState.ENDING) {
-                session.restoreEndNotices(notices);
-            }
-        });
-    }
-
-    /** 模式缺省去向(注册表查不到时按回退处理——模式被摘除的边界)。 */
-    private MatchModeMeta.DefaultTransition defaultTransitionOf(String modeId) {
-        try {
-            return modes.require(modeId).meta().defaultTransition();
-        } catch (RuntimeException e) {
-            return MatchModeMeta.DefaultTransition.FALLBACK;
+        // 无显式去向:空串先行即散 + 驻留预检 + 回退(三步,31 号)
+        if (fallbackModeId.isBlank()) {
+            fallbackSwitch(session, result);
+            return;
         }
+        if (dwellRemaining(session) > 0) {
+            session.restoreEndNotices(notices);        // 驻留窗内回填重试(节流,防回退环风暴)
+            return;
+        }
+        fallbackSwitch(session, result);               // 驻留已满:force 切回退(cause = 本条结束结果)
     }
 
     /** 自动切换的调用栈检查:栈帧必含节拍器类(测试冻结的机械面,§3.5 防护②)。 */
@@ -570,7 +679,7 @@ public final class SessionServiceImpl implements SessionService {
                     decision.reason() != null ? decision.reason() : "实例入场裁决拒绝");
         }
         registerMember(session, player);
-        current.admitParticipant(player);      // 参赛/观战位的安置差别归组件层
+        current.admitParticipant(player);      // 安置细节归组件层
         return new JoinResult.Joined(session.id());
     }
 
@@ -627,8 +736,13 @@ public final class SessionServiceImpl implements SessionService {
         if (session.state() == SessionState.DISSOLVING) {
             return;                     // 幂等:解散中重复调用直接返回
         }
-        abortPending(session, "会话解散,挂起切换作废");
+        // ★v1.13/31 号顺序调整:先置 DISSOLVING 再作废挂起切换——作废会同步完结
+        // future,其 whenComplete 回程(create 首切失败接回退、回退被拒接二级解散)
+        // 必须已能观察到「解散进行中」:否则回退链在解散内部重入(嵌套解散 +
+        // 外层 DISSOLVING 自迁移抛异常 + 重复安置/事件);DISSOLVING 护栏在
+        // fallbackSwitch 两处吸收重入。
         session.transitionTo(SessionState.DISSOLVING);
+        abortPending(session, "会话解散,挂起切换作废");
         List<UUID> members = session.roster().all().stream().map(SessionMember::uuid).toList();
         try {
             try {
@@ -659,6 +773,16 @@ public final class SessionServiceImpl implements SessionService {
             WorldHandle heldWorld = session.worldHandle();
             if (heldWorld != null) {
                 session.replaceWorldHandle(null);
+            }
+            // ★v1.9(27 号)解散世界清场(先名册后世界):名册成员已由上方
+            // hubRelocator 安置(try 内),此处只兜底世界内剩余的遗留人员——遗留人员
+            // = 物理位于该世界内的全部在线玩家(getPlayers()),不以会话名册为界,
+            // 名册外滞留者正是既有清场失败的主因;hubRelocator 抛(WARN 路径)时本口
+            // 接住仍在地图世界内的成员。目标 = 主世界出生点(与 hubRelocator 共用
+            // L0 的 hubSpawn() 单一来源)。heldWorld 为 null(如初始切换失败即解散)
+            // 则跳过、无害。失败 WARN 不阻塞,finally 继续 discardSession → 归零卸载。
+            if (heldWorld != null) {
+                clearWorldToHubQuietly(heldWorld.world(), session.id());
             }
             worlds.discardSession(session.id());
             try {
@@ -704,7 +828,7 @@ public final class SessionServiceImpl implements SessionService {
 
     /**
      * 会话自面({@link SessionPort})的实现体,每会话一份(装配期造 svc 时随建)。
-     * 读口现取(名册/tick/attrs/当前实例);两个行动口(D8)镜像实例级:
+     * 读口现取(名册/tick/当前实例);两个行动口(D8)镜像实例级:
      * {@code requestSwitch} 与 {@code switchMode} <b>同一实现</b>(受最短驻留与重入约束,
      * §3.5);{@code requestDissolve} 幂等。仅会话级组件与内核可调——svc 不给其他方。
      */
@@ -729,11 +853,6 @@ public final class SessionServiceImpl implements SessionService {
         @Override
         public long tick() {
             return session.ticks();
-        }
-
-        @Override
-        public AttributeBag attrs() {
-            return session.attrs();
         }
 
         @Override
@@ -811,16 +930,22 @@ public final class SessionServiceImpl implements SessionService {
             }
             log.log(Level.SEVERE, "会话驱动异常,隔离并强切回退模式: {0}", session.id().value());
             abortPending(session, "会话故障隔离,挂起切换作废");
+            // abortPending 同步完结 future——首切的 create 回调可能在此已发起回退
+            // (所有权判据:完结时 RUNNING 且无挂起计划;31 号复审 S1),其挂起计划的
+            // SWITCHING 状态不得被下方归一化拽回 RUNNING(否则执行段 B5 的
+            // SWITCHING→RUNNING 变自迁移抛异常)。
             try {
                 session.currentInstance().ifPresent(MatchModeInstance::close);
             } catch (Throwable t) {
                 log.log(Level.WARNING, "隔离时关闭实例异常(继续): " + session.id().value(), t);
             }
             session.setCurrentInstance(null);
-            if (session.state() == SessionState.SWITCHING) {
-                session.transitionTo(SessionState.RUNNING);    // 回常态再递归(ENDING 可直达切换)
+            if (session.state() == SessionState.SWITCHING && session.pendingSwitch() == null) {
+                session.transitionTo(SessionState.RUNNING);    // 回常态再递归(ENDING 可直达切换;
+                                                                // 他路新切换在途则不动,见上注)
             }
-            fallbackSwitch(session);
+            fallbackSwitch(session, EndResult.nowhere());      // 故障自愈立即执行,不加驻留预检;
+                                                                // 已有在途回退时为 no-op(重入护栏)
         }
     }
 
@@ -839,6 +964,8 @@ public final class SessionServiceImpl implements SessionService {
         private Executor mainExecutor = Runnable::run;
         private Consumer<Collection<UUID>> hubRelocator = members -> { };
         private Consumer<Collection<UUID>> safeStateCleaner = members -> { };
+        private BiConsumer<World, World> worldClearer = (from, to) -> { };   // ★v1.9(27 号):默认 no-op
+        private Consumer<World> hubWorldClearer = world -> { };              // ★v1.9(27 号):默认 no-op
         private Consumer<SessionEvent> sessionEventMirror;
         private Logger logger = Logger.getLogger(SessionServiceImpl.class.getName());
 
@@ -872,8 +999,10 @@ public final class SessionServiceImpl implements SessionService {
         }
 
         /**
-         * 回退模式 id(配置注入,引擎零字面量;§14.21)。允许空串——
-         * 空 = 回退链跳过一级、直接二级解散兜底;仅 {@code null} 视为装配缺失。
+         * 回退模式 id(配置注入,引擎零字面量;§14.21)。★v1.13(31 号):默认资源
+         * 值 = 出厂空模式 id(经 SPI 注册兜底);空串/未注册 = <b>无效回退</b>——
+         * 回退需求时 SEVERE + 强制解散(fallbackSwitch 单点判据);仅 {@code null}
+         * 视为装配缺失。
          */
         public Builder fallbackModeId(String fallbackModeId) {
             this.fallbackModeId = Objects.requireNonNull(fallbackModeId, "fallbackModeId");
@@ -905,6 +1034,31 @@ public final class SessionServiceImpl implements SessionService {
         }
 
         /**
+         * 切换世界清场函数(★v1.9/27 号,平台侧,L0 注入):把旧世界内全部在线玩家
+         * ({@code World#getPlayers()},遗留人员)传往目标世界出生点
+         * ({@code World#getSpawnLocation()})。调用点 = executeB 的 B3.5(同世界复用,
+         * 先行于组件摆放)与 B5 finally(异图,殿后于完成事件、release 之前);引擎
+         * 侧 best-effort 包裹,本函数抛任何异常只记 WARN 不阻塞切换。默认 no-op
+         * (离线测试零 Bukkit 静态触碰)。
+         */
+        public Builder worldClearer(BiConsumer<World, World> worldClearer) {
+            this.worldClearer = Objects.requireNonNull(worldClearer, "worldClearer");
+            return this;
+        }
+
+        /**
+         * 解散世界清场函数(★v1.9/27 号,平台侧,L0 注入):把地图世界内全部在线
+         * 玩家(遗留人员)传往主世界出生点(生产 = 与 {@code hubRelocator} 同源的
+         * hubSpawn() 单一口径)。调用点 = dissolveNow 的 finally(名册传送之后的
+         * 「先名册后世界」接缝,worlds.discardSession 之前);best-effort 同上,
+         * 失败不阻塞解散。默认 no-op。
+         */
+        public Builder hubWorldClearer(Consumer<World> hubWorldClearer) {
+            this.hubWorldClearer = Objects.requireNonNull(hubWorldClearer, "hubWorldClearer");
+            return this;
+        }
+
+        /**
          * 全局汇聚镜像(★v1.1-D3,7.5 施工决策 12;可空 = 不挂镜像):每个新会话
          * 构造后立即 {@code Session.events().setMirror(本消费者)}——会话事件照旧进
          * 本会话总线,同时镜像到全局汇聚总线(L0 ⑨ 号 {@code SessionEventBus});
@@ -929,7 +1083,7 @@ public final class SessionServiceImpl implements SessionService {
             if (maps == null) missing.append("maps ");
             if (configSource == null) missing.append("configSource ");
             if (policy == null) missing.append("policy ");
-            if (fallbackModeId == null) missing.append("fallbackModeId ");   // 空串合法(跳级语义),仅 null 缺失
+            if (fallbackModeId == null) missing.append("fallbackModeId ");   // 空串合法(无效回退语义,31 号),仅 null 缺失
             if (engineServices == null) missing.append("engineServices ");
             if (!missing.isEmpty()) {
                 throw new IllegalStateException("SessionServiceImpl 依赖缺失: " + missing);

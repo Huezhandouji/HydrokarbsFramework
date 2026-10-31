@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -17,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.mode.MatchModeMeta;
@@ -156,7 +155,7 @@ class CleanupResilienceTest {
         List<String> log = new ArrayList<>();
         RuntimeException stopFailure = new RuntimeException("stop-boom");
         MatchMode.Builder builder = new MatchMode.Builder("m1")
-                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100));
         builder.addComponent("c1", new ProbeSpec(log, null));
         builder.addComponent("c2", new ProbeSpec(log, () -> {
             throw stopFailure;
@@ -169,7 +168,7 @@ class CleanupResilienceTest {
                 SessionPolicy.defaults(SessionPolicy.Topology.ROTATION));
         session.roster().join(UUID.randomUUID(), 1L);
         MatchModeInstance instance = mode.createInstance(session,
-                new MapDefinition("map1", "world1", Set.of(), Map.of()),
+                new MapDefinition(java.nio.file.Path.of("map1"), AttributeBag.empty()),
                 new FallbackConfig(), null, Handoff.empty(), new EngineServices(new NullPlatform()));
 
         instance.awakeAll();

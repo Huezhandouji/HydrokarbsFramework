@@ -3,7 +3,6 @@ package com.hydrokarbs.engine.port;
 import java.util.List;
 import java.util.Optional;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeSelection;
@@ -17,9 +16,6 @@ import com.hydrokarbs.engine.session.SessionMember;
  * <p>★v4 新增的<b>唯一「组件影响力的面」</b>只有两个行动口(D8,§2.8-决断四):
  * {@link #requestSwitch}/{@link #requestDissolve}——镜像实例级的
  * {@code switchTo()}/{@code end()};不新增其他影响力端口。
- *
- * <p>会话 attrs 的命名空间纪律(§2.7 加严③):命名空间 = <b>组件 id</b>,
- * {@code "session"} 保留给内核(组件不得占用)。
  */
 public interface SessionPort {
 
@@ -31,9 +27,6 @@ public interface SessionPort {
 
     /** 会话已存活 tick 数(空场计时与最短驻留的同一量纲来源,与实例级 tick() 同构)。 */
     long tick();
-
-    /** 会话级键值袋(命名空间 = 组件 id;§2.7)。 */
-    AttributeBag attrs();
 
     /** 会话事件端口:发布 / 订阅(订阅句柄随组件 stop 自动回收)。 */
     SessionEventPort events();

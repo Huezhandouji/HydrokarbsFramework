@@ -14,12 +14,10 @@ public record JoinDecision(Kind kind, String reason) {
         Objects.requireNonNull(kind, "kind");
     }
 
-    /** 裁决三种安置:参赛位 / 观战位 / 拒收。 */
+    /** 裁决二值:许可入场(成为参赛者)/ 拒绝入场(会话不收)。 */
     public enum Kind {
         /** 许可入场,安置为参赛位。 */
         ADMIT,
-        /** 许可入场,安置为观战位(观战体验归组件层,会话层只记名册)。 */
-        SPECTATE,
         /** 拒绝入场(会话不收,名册不登记)。 */
         REJECT
     }

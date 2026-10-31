@@ -3,10 +3,8 @@ package com.hydrokarbs.engine.instance;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.hydrokarbs.engine.AttributeBag;
-
 /**
- * 参赛者:会话成员在某次模式实例内的视图(uuid、生命周期标记、实例属性袋,
+ * 参赛者:会话成员在某次模式实例内的视图(uuid、生命周期标记,
  * 02-核心概念 §2.2-Participant 行)。
  *
  * <p>★ 玩法语义字段(分组/职能等)不在参赛者上——那些状态归组件所有,
@@ -28,7 +26,6 @@ public final class Participant {
 
     private final UUID uuid;
     private final ParticipantState state;
-    private final AttributeBag attrs = new AttributeBag();
 
     /** 便捷构造:初始标记 JOINING。 */
     public Participant(UUID uuid) {
@@ -46,10 +43,5 @@ public final class Participant {
 
     public ParticipantState state() {
         return state;
-    }
-
-    /** 实例级键值袋(命名空间 = 组件 id;随实例 close 整体销毁)。 */
-    public AttributeBag attrs() {
-        return attrs;
     }
 }

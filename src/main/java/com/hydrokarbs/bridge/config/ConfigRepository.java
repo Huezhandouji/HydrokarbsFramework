@@ -23,7 +23,8 @@ import com.hydrokarbs.map.MapRegistry;
  * <p>三件事:
  * <ul>
  *   <li>{@link #saveDefaults()}——首次启动释放默认资源(已存在不覆盖,幂等;
- *       本阶段清单仅 {@code config.yml};{@code modes/} 的玩法实例
+ *       ★v1.13/31 号起清单含 {@code config.yml} + 出厂空模式配置
+ *       {@code modes/limbo.yml}(嵌套路径,父目录随建);其余玩法实例
  *       由玩法线施工阶段追加);</li>
  *   <li>{@link #loadAll(Path)}——扫 {@code modes/*.yml} → 模式配置缓存、
  *       读 {@code config.yml} 主配置树(地图不经配置装载——由外部调用方经
@@ -46,8 +47,9 @@ public final class ConfigRepository implements ConfigView {
 
     private static final Logger DEFAULT_LOG = Logger.getLogger(ConfigRepository.class.getName());
 
-    /** 默认资源清单(幂等释放;玩法线施工阶段在此追加玩法实例)。 */
-    private static final List<String> DEFAULT_RESOURCES = List.of("config.yml");
+    /** 默认资源清单(幂等释放;★v1.13/31 号起含出厂空模式配置 modes/limbo.yml——
+     *  嵌套资源,装载后入缓存消除「模式配置缺失」告警;玩法线施工阶段在此追加玩法实例)。 */
+    private static final List<String> DEFAULT_RESOURCES = List.of("config.yml", "modes/limbo.yml");
 
     private final Path dataDir;
     private final DefaultResourceSource defaults;
@@ -55,44 +57,29 @@ public final class ConfigRepository implements ConfigView {
     private final MatchModeConfigLoader modeLoader;
     private final Logger logger;
 
-    private final MapRegistry maps;   // ★v1.2:构造注入模板根(注册期模板目录校验依据,20-D2)
+    private final MapRegistry maps;   // ★v1.2:构造注入(★v1.8 起无模板根——注册校验直接验声明路径)
     private volatile Map<String, Object> mainConfig = Map.of();
     private volatile Map<String, MatchModeConfig> modeConfigs = Map.of();
 
     public ConfigRepository(Path dataDir, DefaultResourceSource defaults) {
-        this(dataDir, defaults, DEFAULT_LOG,
-                dataDir.resolve("maps").resolve("templates"));   // 缺省模板根 = §15.2 目录约定
-    }
-
-    /**
-     * 装配注入模板根构造口(★v1.2/7.5 施工决策 14):地图注册通道的注册期模板目录
-     * 校验依据({@code MapRegistry} 构造注入——map 包纯模型包,不 import bridge);
-     * 生产装配传入与 {@code WorldPortImpl} 同源的 {@code maps/templates} 根,
-     * 「模板解析路径只有一份约定」由此机械保证。
-     */
-    public ConfigRepository(Path dataDir, DefaultResourceSource defaults, Path templatesRoot) {
-        this(dataDir, defaults, DEFAULT_LOG, templatesRoot);
+        this(dataDir, defaults, DEFAULT_LOG);
     }
 
     /** 测试注入日志捕获器的构造口(生产用双参构造)。 */
     ConfigRepository(Path dataDir, DefaultResourceSource defaults, Logger logger) {
-        this(dataDir, defaults, logger,
-                dataDir.resolve("maps").resolve("templates"));   // 缺省模板根 = §15.2 目录约定
-    }
-
-    private ConfigRepository(Path dataDir, DefaultResourceSource defaults, Logger logger,
-                             Path templatesRoot) {
         this.dataDir = dataDir;
         this.defaults = defaults;
         this.logger = logger;
         this.codec = new YamlCodec();
         this.modeLoader = new MatchModeConfigLoader(codec, logger);
-        this.maps = new MapRegistry(templatesRoot);
+        this.maps = new MapRegistry();
     }
 
     /**
      * 首次启动释放默认资源:<b>已存在的文件永不覆盖</b>(用户改过的配置优先,
-     * 装载时序不变式 1)。目标不存在才从默认资源拷贝;默认资源本身缺席则 WARN 跳过。
+     * 装载时序不变式 1)。目标不存在才从默认资源拷贝;嵌套资源(如
+     * {@code modes/limbo.yml},31 号)的目标父目录逐资源随建——只建 dataDir 时
+     * 子目录缺席会 {@code NoSuchFileException};默认资源本身缺席则 WARN 跳过。
      */
     public void saveDefaults() throws IOException {
         Files.createDirectories(dataDir);
@@ -101,6 +88,7 @@ public final class ConfigRepository implements ConfigView {
             if (Files.exists(target)) {
                 continue;                                  // 幂等:二次启动不覆盖
             }
+            Files.createDirectories(target.getParent());   // 嵌套资源父目录随建(31 号)
             try (InputStream source = defaults.open(name)) {
                 if (source == null) {
                     logger.log(Level.WARNING, "默认资源缺席,跳过释放: {0}", name);

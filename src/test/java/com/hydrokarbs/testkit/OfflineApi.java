@@ -1,9 +1,7 @@
 package com.hydrokarbs.testkit;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -33,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * api 集成测试基座(7.5;test 源集):真会话服务(假世界口/直通主线程/镜像挂接)+
- * 真模式注册表 + 真地图目录(带模板根)+ ⑨ 汇聚总线 + D14 贡献收录表
+ * 真模式注册表 + 真地图目录(★v1.8 起无模板根,造数走 {@link MapTestKit})
+ * + ⑨ 汇聚总线 + D14 贡献收录表
  * + 真 {@link MiniGameApiImpl}——★42/★43/★51~★53/★54 的离线端到端底座
  * (镜像 {@code SwitchHarness} 2.3 装配先例;离线零 Bukkit 静态调用)。
  *
@@ -58,12 +57,10 @@ public final class OfflineApi {
     public final List<LogRecord> logs = new ArrayList<>();
 
     /**
-     * @param templatesRoot  地图注册通道的模板根(必填;可指向 @TempDir 下目录——
-     *                       注册期模板目录校验依据,MapRegistry 同口径)
      * @param worlds         世界端口假件(即时成功/注入失败)
      * @param modeFactories  预造模式的假工厂(注册表以 {@code register} 启动期口径收录)
      */
-    public OfflineApi(Path templatesRoot, FakeWorldPort worlds, MatchMode... modeFactories) {
+    public OfflineApi(FakeWorldPort worlds, MatchMode... modeFactories) {
         Logger logger = Logger.getLogger("offline-api-" + System.nanoTime());
         logger.setUseParentHandlers(false);
         logger.addHandler(new Handler() {
@@ -84,7 +81,7 @@ public final class OfflineApi {
         for (MatchMode mode : modeFactories) {
             modes.register(fixedProvider(mode));
         }
-        this.maps = new MapRegistry(templatesRoot);
+        this.maps = new MapRegistry();
         this.globalEvents = new SessionEventBus();
         this.contributions = new SessionComponentContributionRegistry();
         this.service = new SessionServiceImpl.Builder()
@@ -93,14 +90,14 @@ public final class OfflineApi {
                 .maps(maps)
                 .configSource(id -> OfflineAssembly.cfg())
                 .policy(SessionPolicy.defaults(SessionPolicy.Topology.ARENA))
-                .fallbackModeId("")                            // ★v1.3 R3:空 = 跳级直接解散
+                .fallbackModeId("")                            // 基座惰性回退:空串 = 无效回退(SEVERE + 解散,31 号)
                 .engineServices(new EngineServices(new OfflineAssembly.FakePlatform()))
                 .mainExecutor(Runnable::run)                   // 直通:切换完成点内联
                 .sessionEventMirror(globalEvents::publish)     // ★v1.1-D3 镜像(7.5 决策 12)
                 .logger(logger)
                 .build();
         this.ticker = new EngineTicker(null, service);         // Plugin 位传 null:不 start,直调驱动
-        // fallbackModeId 传空读口:与上方 service.fallbackModeId("") 同口径(空 = 摘除回退跳级直接解散)
+        // fallbackModeId 传空读口:与上方 service.fallbackModeId("") 同口径(空 = 无效回退 → SEVERE + 解散)
         this.api = new MiniGameApiImpl(service, modes, maps, globalEvents,
                 contributions, Runnable::run, () -> "");
     }
@@ -138,14 +135,13 @@ public final class OfflineApi {
     public static MatchMode mode(String id, Set<String> mapTags) {
         return new MatchMode.Builder(id)
                 .mapTags(mapTags)
-                .meta(new MatchModeMeta(false, 0, 100,
-                        MatchModeMeta.DefaultTransition.STAY))
+                .meta(new MatchModeMeta(false, 0, 100))
                 .build();
     }
 
-    /** 最小注册式地图(带出生点组,便于后续消费;模板目录须由调用方先落盘)。 */
-    public static MapDefinition map(String id, Set<String> tags) {
-        return new MapDefinition(id, "world_" + id, tags, Map.of());
+    /** 最小注册式地图声明(带标签进约定键;世界目录落盘与注册由调用方自理)。 */
+    public static MapDefinition map(java.nio.file.Path worldDirectoryPath, Set<String> tags) {
+        return MapTestKit.declaration(worldDirectoryPath, tags);
     }
 
     /** 固定模式假 provider(注册表双发现的桩:build 返回预造模式)。 */

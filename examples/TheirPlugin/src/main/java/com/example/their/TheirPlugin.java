@@ -4,7 +4,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -19,7 +18,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.hydrokarbs.api.EventSubscription;
@@ -28,23 +26,26 @@ import com.hydrokarbs.api.SessionEventView;
 import com.hydrokarbs.api.SessionRecipe;
 import com.hydrokarbs.api.view.MapInfo;
 import com.hydrokarbs.api.view.SessionInfo;
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.session.JoinResult;
 import com.hydrokarbs.engine.session.LeaveReason;
 import com.hydrokarbs.map.MapDefinition;
-import com.hydrokarbs.map.SpawnPoint;
 
 /**
  * 第三方消费样例插件(7.5 施工文档步骤 10;13-扩展步骤 §13.4/§13.10/§13.11 的
- * 可运行落地版):真实消费 {@link MiniGameApi} v6 面——成员操作编排(D2)、
+ * 可运行落地版):真实消费 {@link MiniGameApi} v7 面——成员操作编排(D2)、
  * 会话事件订阅(D3)、SessionRecipe 单次建会话(D14 通道二)、
- * 注册式地图(★v1.2;解包 → 构造声明 → registerMap,14.39)、模式与会话组件
+ * 注册式地图(★v1.2;落盘 → 构造声明 → registerMap,14.39)、模式与会话组件
  * 显式注册(★v1.6;原 ServicesManager 提供方通道退场),并演示
  * 版本协商拒载(14.36)、句柄只在实例字段(14.38)与禁 shade 构建断言(14.35,
  * 见 build.gradle.kts 的 {@code verifyNoFrameworkClasses} 任务)。
  * ★v1.7(25 号修正案):原 D4 能力标签演示(/their capability 命令)随标签机制
  * 全链退场删除——外部能力 = 会话组件桥接(本插件的贡献组件
  * {@link TheirSessionComponent} 即桥接形态)。
+ * ★v1.8(26 号修正案议题):地图声明按路径直交——「模板寄居框架数据目录」
+ * 约定退场,模板解包到<b>本插件自己的数据目录</b> {@code maps/<id>/},
+ * 声明自带 {@code worldDirectoryPath},标签走 {@code MapDefinition.TAGS} 词料键。
  *
  * <p><b>onEnable 固定顺序</b>(§13.4 步骤表 + §13.11 表;★v1.6 显式注册口径):
  * 首行查版本 → registerMode(工厂;响亮抛 = 拒载信号)→ registerSessionComponents
@@ -60,11 +61,11 @@ import com.hydrokarbs.map.SpawnPoint;
  */
 public final class TheirPlugin extends JavaPlugin {
 
-    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服;★v1.7 起 = 6)。 */
-    static final int REQUIRED_API_VERSION = 6;
-    /** 注册式地图 id(模板随本 jar 分发;14.39 顺序的演示载体)。 */
+    /** 本样例要求的最低 API_VERSION(14.36:低于即拒载,不崩服;★v1.8 起 = 7)。 */
+    static final int REQUIRED_API_VERSION = 7;
+    /** 注册式地图 id(= 声明目录名,路径派生 id 的目录段;模板随本 jar 分发)。 */
     static final String MAP_ID = "their_arena";
-    /** 模板资源根(jar 内路径;解包目标 = 框架数据目录 maps/templates/<id>/)。 */
+    /** 模板资源根(jar 内资源路径;解包目标 = 本插件数据目录 maps/<id>/,★v1.8 路径直交)。 */
     private static final String TEMPLATE_RESOURCE_ROOT = "maps/templates/" + MAP_ID;
     /** 根命令(自有命令树;plugin.yml 不写 commands: 段——Brigadier 注册)。 */
     private static final String ROOT_COMMAND = "their";
@@ -145,22 +146,19 @@ public final class TheirPlugin extends JavaPlugin {
     // ── ★v1.2:注册式地图(onEnable 顺序 = 解包 → 构造 → registerMap,14.39) ──
 
     private void registerTheirArenaMap() {
-        Plugin framework = getServer().getPluginManager().getPlugin("Hydrokarbs");
-        if (framework == null) {
-            throw new IllegalStateException("Hydrokarbs 缺席(depend 已声明,不应发生)");
-        }
-        // ① 解包模板落盘(20-D2:解析以框架数据目录 maps/templates/<mapId>/ 约定为准)
-        Path templateRoot = framework.getDataFolder().toPath()
-                .resolve("maps").resolve("templates");
+        // ① 解包模板落盘(★v1.8 路径直交:模板住本插件自己的数据目录 maps/<id>/,
+        //    不再寄居框架数据目录)
+        Path worldDir = getDataFolder().toPath().resolve("maps").resolve(MAP_ID);
         extractTemplate(TEMPLATE_RESOURCE_ROOT + "/level.properties",
-                templateRoot.resolve(MAP_ID).resolve("level.properties"));
+                worldDir.resolve("level.properties"));
         extractTemplate(TEMPLATE_RESOURCE_ROOT + "/region/placeholder.txt",
-                templateRoot.resolve(MAP_ID).resolve("region").resolve("placeholder.txt"));
-        // ② 构造声明(纯静态值,代码构造合法——13 §13.11 步骤 3;声明走 yml 亦可)
-        MapDefinition map = new MapDefinition(MAP_ID, "their_arena_world", Set.of("demo"),
-                Map.of("spawn", List.of(new SpawnPoint(0.5, 64.0, 0.5, 0f))));
-        // ③ 注册(注册期校验:id 查重点名先到者/tags/模板目录存在性——缺失响亮抛,20-D3;
-        //    本样例按设计让异常上抛 = 拒载信号,onEnable 失败即插件禁用)
+                worldDir.resolve("region").resolve("placeholder.txt"));
+        // ② 构造声明(★v1.8 两参新形状:路径 + 词料容器;纯静态值,代码构造
+        //    合法——13 §13.11 步骤 3,声明走 yml 亦可;标签进 MapDefinition.TAGS 词料键)
+        MapDefinition map = new MapDefinition(worldDir,
+                new AttributeBag.Builder().put(MapDefinition.TAGS, Set.of("demo")).build());
+        // ③ 注册(注册期校验:世界目录存在性带绝对路径/id 查重点名先到者——缺失响亮抛,
+        //    20-D3;本样例按设计让异常上抛 = 拒载信号,onEnable 失败即插件禁用)
         MapInfo info = api.registerMap(this, map);
         getLogger().info("注册式地图已登记: " + info.id() + "(maps() 可见,可被 switchMode 选中)");
     }

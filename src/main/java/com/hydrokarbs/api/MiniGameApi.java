@@ -73,6 +73,27 @@ import com.hydrokarbs.map.MapDefinition;
  * 叠在其上的字符串平行层)。「只增不改」纪律由 17 方法清单续行守卫(★19/★44,
  * 冻结测试与版本常量随本裁决合法更新)。
  *
+ * <p><b>★v1.8 地图声明按路径直交 + MapDefinition 瘦身(2026-10-28;API_VERSION = 7,
+ * 方法面零变化 = 17 方法;26 号修正案议题)</b>:
+ * 「模板寄居框架数据目录 {@code maps/templates/}」约定退场——{@link MapDefinition}
+ * 自带 {@code worldDirectoryPath}(构造期规范化为绝对路径),注册校验直接验声明
+ * 路径存在性、查重统一到路径派生 id;MapDefinition 声明 =
+ * {@code (worldDirectoryPath, resetStrategy, AttributeBag metadata)}(词料容器
+ * 构造即冻结,标签经 {@link MapDefinition#tags()} 读取、缺省空集;resetStrategy
+ * 缺省 {@code REUSE_DIRTY})。
+ * 方法集与签名一字未动(地图注册通道的
+ * 破坏性在声明形状侧,不在此面);版本常量随本裁决合法更新(★19/★44)。
+ *
+ * <p><b>★v1.13 缺省去向管线退场(2026-10-30;API_VERSION = 8,方法面零变化 =
+ * 17 方法;31 号修正案裁决)</b>:无显式去向的结束一律回落
+ * {@code session.fallback-mode}(默认 = 出厂空模式,经 SPI 注册兜底);
+ * {@code MatchModeMeta} 的 {@code defaultTransition} 分量与嵌套枚举
+ * {@code DefaultTransition} 删除,快照 {@code MatchModeInfo} 的同名分量
+ * 同步删除(9 → 8)——删公开快照分量 = 跨 jar 破坏,消费过该分量的旧编译物
+ * 需重编译;经用户裁决不设双轨过渡期(特性文逐字要求直接删除,One-Version
+ * Rule 用户豁免,同 ★v1.4/★v1.6/★v1.7 先例)。版本常量与冻结测试随本裁决
+ * 合法更新(★19/★44)。
+ *
  * <p><b>A9 三限制(§0.2-A9/§7.2)</b>:①聚合根 {@code build()} 后不可变;
  * ②第三方不能给已注册模式追加组件或改组件表;③要「变体」就注册一个新 id——
  * 杜绝运行期装饰带来的加载顺序地狱。
@@ -105,12 +126,16 @@ public interface MiniGameApi {
      * v1.6 = 5(显式注册收敛:模式/会话组件经 {@link #registerMode}/
      * {@link #registerSessionComponents} 注册,ServicesManager 提供方通道与
      * {@code SessionComponentProvider} SPI 删除);
-     * v1.7 = 6(能力标签机制退场:外部能力 = 会话组件桥接,25 号修正案裁决)。
+     * v1.7 = 6(能力标签机制退场:外部能力 = 会话组件桥接,25 号修正案裁决);
+     * v1.8 = 7(地图声明按路径直交 + MapDefinition 瘦身,方法面零变化,
+     * 26 号修正案议题);
+     * v1.13 = 8(MatchModeMeta 缺省去向字段与 DefaultTransition 退场,
+     * MatchModeInfo 快照分量同步删除,31 号修正案裁决;经用户裁决不设双轨过渡期)。
      * 消费方 {@code onEnable} <b>首行</b>检查
      * {@code api == null || api.API_VERSION < REQUIRED} → SEVERE +
      * {@code setEnabled(false)}(拒载不崩服,14.36);框架 onEnable 日志输出版本。
      */
-    int API_VERSION = 6;
+    int API_VERSION = 8;
 
     // ── 查询(不可变快照;现取不缓存,14.31 同款纪律) ────────────────────────
 
@@ -189,10 +214,12 @@ public interface MiniGameApi {
 
     /**
      * 注册地图(声明 = 纯静态 {@link MapDefinition},直接交成品——与模式必须交
-     * 工厂相对,20-D1)。注册期校验(响亮抛,20-D3):id 查重(重复点名先到者)、
-     * tags、世界模板目录存在性({@code maps/templates/<mapId>/},缺失响亮抛带路径;
-     * 14.39:先解包后注册)。成功返回 {@link MapInfo} 快照并进 {@link #maps()}
-     * 目录,可被 {@code switchMode} 选中。主线程调用。
+     * 工厂相对,20-D1;★v1.8:声明按路径直交,模板根约定退场)。注册期校验
+     * (响亮抛,20-D3):id 查重(id = 声明目录名,路径派生;同一路径再注册必撞,
+     * 重复点名先到者)、世界目录存在性({@code worldDirectoryPath} 存在且为目录,
+     * 缺失/非目录响亮抛带完整绝对路径;14.39:先落盘后注册)。成功返回
+     * {@link MapInfo} 快照并进 {@link #maps()} 目录,可被 {@code switchMode} 选中。
+     * 主线程调用。
      */
     MapInfo registerMap(org.bukkit.plugin.Plugin provider, MapDefinition map);
 

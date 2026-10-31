@@ -14,8 +14,9 @@ import com.hydrokarbs.engine.session.MatchModeConfig;
 /**
  * 第三方模式工厂:只有 Builder 声明,零生命周期代码(§13.4 示例的落地版;
  * 7.2 施工文档步骤 6)。模式即产品:每行一个组件声明,阶段/规则/结束判定全是
- * 构造数据——本示例不挂阶段与结束判定组件,永不自动结束,等外部 switch
- * ({@code DefaultTransition.STAY},§13.3 minilobby 同思路)。
+ * 构造数据——本示例不挂阶段与结束判定组件,不自行发起结束;无显式去向的结束
+ * 回落 {@code session.fallback-mode}(默认 = 出厂空模式兜底,★v1.13/31 号),
+ * 本示例仍以外部 switch 为主要用法(§13.3 minilobby 同思路)。
  *
  * <p>声明要点(7.2 施工文档步骤 6):
  * <ul>
@@ -48,8 +49,7 @@ public final class TheirModeFactory implements MatchModeProvider {
                 .displayName(Component.text("Their Mode"))
                 .icon(Material.BELL)
                 .mapTags(Set.of("demo"))
-                .meta(new MatchModeMeta(false, 1, 16,
-                        MatchModeMeta.DefaultTransition.STAY))
+                .meta(new MatchModeMeta(false, 1, 16))
                 .addComponent("banner", new TheirBannerComponent.Spec())
                 .build();
     }

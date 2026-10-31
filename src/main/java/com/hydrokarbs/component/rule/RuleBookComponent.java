@@ -2,11 +2,9 @@ package com.hydrokarbs.component.rule;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.MatchModeInstanceEvent;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
@@ -95,11 +93,6 @@ public final class RuleBookComponent extends MatchModeComponent {
         @Override
         public <T extends MatchModeComponent> T component(Class<T> type) {
             return svc().components().get(type);
-        }
-
-        @Override
-        public <T> Optional<T> attr(AttributeBag.Key<T> key) {
-            return svc().self().attrs().get(key);
         }
 
         @Override

@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * 公共 API 冻结(★19;7.1 施工文档步骤 8;7.5 步骤 11 快照 8→16;★v1.4 收敛
- * 16→15;★v1.6 显式注册收敛 15→19;★v1.7 能力标签退场 19→17):反射冻结 v6
+ * 16→15;★v1.6 显式注册收敛 15→19;★v1.7 能力标签退场 19→17;★v1.8 方法面零变化):
+ * 反射冻结 v7
  * 方法集(17 方法 = v1 面 7【查询 3 + 控制 1 + 目录 3】+ 7.5 增量 6【D2 成员 2 +
  * D3 订阅 1 + D14 recipe 建会话 1 + ★v1.2 地图注册 2】+ ★v1.6 增量 4【模式显式
  * 注册 2 + 会话组件显式注册 2】),归一为 {@code "name(参数类型列表):返回类型"}
@@ -26,6 +27,9 @@ import org.junit.jupiter.api.Test;
  * ★v1.7(25 号修正案)经用户裁决删除 ★v1.1-D4 的能力标签两法
  * (破坏性例外:能力标签机制全链退场,外部能力 = 会话
  * 组件桥接),其余 17 行签名不动。
+ * ★v1.8(26 号修正案议题):地图声明按路径直交 + MapDefinition 瘦身——破坏性在
+ * 声明形状侧,方法面零变化,17 行签名不动,版本常量 6 → 7(冻结测试与版本常量
+ * 随本裁决合法更新)。
  *
  * <p><b>「只增不改」运营细则(给未来维护者;7.1 关键实现要点 7)</b>:
  * <ol>
@@ -42,8 +46,10 @@ import org.junit.jupiter.api.Test;
  * {@code MiniGameApiImplTest} 补断言(方法名在清单里,改名即红,不漏报)。
  * 战绩两方法(stats/top)随 ★v1.3/R1 悬置(21 §6-Q1),不在清单(签名类型
  * {@code PlayerStats}/{@code LeaderboardRow} 已随 L5 data/model 出框架);
- * 回填 = 细则第 1 条流程。API_VERSION = 6(v1.0=1;v1.1=2;v1.2=3;★v1.3 维持;
- * ★v1.4 = 4;★v1.6 = 5;★v1.7 = 6,能力标签机制退场)。
+ * 回填 = 细则第 1 条流程。API_VERSION = 8(v1.0=1;v1.1=2;v1.2=3;★v1.3 维持;
+ * ★v1.4 = 4;★v1.6 = 5;★v1.7 = 6;★v1.8 = 7,地图声明按路径直交 + 瘦身;
+ * ★v1.13 = 8,MatchModeMeta 缺省去向字段与 DefaultTransition 退场、
+ * MatchModeInfo 快照分量同步删除——31 号修正案裁决,经用户裁决不设双轨过渡期)。
  */
 class MiniGameApiSurfaceTest {
 
@@ -90,9 +96,11 @@ class MiniGameApiSurfaceTest {
     }
 
     @Test
-    void apiVersionIsSix() {
-        // 版本协商常量冻结(D7;v1.0=1;v1.1=2;v1.2=3;v1.3 维持 3;★v1.4=4;★v1.6=5;★v1.7=6)
-        assertEquals(6, MiniGameApi.API_VERSION, "API_VERSION 只增不减(D7;14.36 消费方拒载依据)");
+    void apiVersionIsEight() {
+        // 版本协商常量冻结(D7;v1.0=1;v1.1=2;v1.2=3;v1.3 维持 3;★v1.4=4;★v1.6=5;★v1.7=6;
+        // ★v1.8=7,地图声明按路径直交 + MapDefinition 瘦身,方法面零变化;★v1.13=8,
+        // 缺省去向管线退场——MatchModeMeta 字段与 MatchModeInfo 快照分量删除,31 号修正案)
+        assertEquals(8, MiniGameApi.API_VERSION, "API_VERSION 只增不减(D7;14.36 消费方拒载依据)");
     }
 
     /** 归一化:方法名(参数类型逗号串,声明序):返回类型(全 Class#getName)。 */

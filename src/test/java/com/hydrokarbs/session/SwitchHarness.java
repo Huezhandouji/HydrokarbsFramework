@@ -10,8 +10,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+
+import org.bukkit.World;
 
 import com.hydrokarbs.engine.EngineTicker;
 import com.hydrokarbs.engine.event.SessionEvent;
@@ -43,11 +46,18 @@ final class SwitchHarness {
     /** 共享测试标签(模式与地图都带它,零标签过滤干扰)。 */
     static final Set<String> TAG = Set.of("common");
 
+    /** ★v1.9(27 号)切换清场调用记录(from = 旧世界,to = 目标世界;次数与 from == to 断言用)。 */
+    record WorldClear(World from, World to) {
+    }
+
     final MatchModeRegistry registry = new MatchModeRegistry(id -> OfflineAssembly.cfg());
     final MapRegistry maps;
     final FakeWorldPort worlds;
     final List<Collection<UUID>> relocations = new ArrayList<>();       // 解散传送记录
     final List<Collection<UUID>> cleanups = new ArrayList<>();          // 兜底清态记录
+    final List<WorldClear> worldClears = new ArrayList<>();             // ★v1.9:切换清场记录(B3.5/B5)
+    final List<World> hubWorldClears = new ArrayList<>();               // ★v1.9:解散清场记录(dissolve finally)
+    final List<String> seamLog;                                         // ★v1.9:接缝时序表(与假件共用;见私有 ctor)
     final List<String> logLines = new ArrayList<>();                    // 服务日志(WARN/SEVERE 断言)
     final SessionServiceImpl service;
     final EngineTicker ticker;
@@ -72,6 +82,25 @@ final class SwitchHarness {
         this(FakeWorldPort.immediate(), fallbackModeId, lookupOverride, modes);
     }
 
+    /**
+     * ★v1.9(27 号)sticky 装配口(清场断言组专用):同 (map, session) 幂等同句柄假件
+     * (镜像真端口表命中)——离线「同图重开 from == to」判据依赖它。传入的 seam 既是
+     * 假件 release/discardSession 的时序录,也是本 harness 清场记录 lambda 的落点;
+     * 测试可先用 seam 建探针模式(如 {@code ProbeComponent.Spec(log).onStart(p -> seam.add("probe:start"))})
+     * 再装配,一份列表承载「清场 → 组件钩子 → release/discardSession」全序。
+     * 主线程直跑(mainExecutor = Runnable::run)下列表顺序即真实调用序。
+     */
+    SwitchHarness(List<String> seam, String fallbackModeId, MatchMode... modes) {
+        this(FakeWorldPort.sticky(seam), fallbackModeId, null,
+                new OfflineAssembly.FakePlatform(), seam, false, modes);
+    }
+
+    /** ★v1.9(27 号)清场抛异常装配(失败不阻塞断言组专用):切换清场恒抛。 */
+    static SwitchHarness throwingWorldClear(String fallbackModeId, MatchMode... modes) {
+        return new SwitchHarness(FakeWorldPort.immediate(), fallbackModeId, null,
+                new OfflineAssembly.FakePlatform(), null, true, modes);
+    }
+
     private SwitchHarness(FakeWorldPort worlds, String fallbackModeId, ModeLookup lookupOverride,
                           MatchMode... modes) {
         this(worlds, fallbackModeId, lookupOverride, new OfflineAssembly.FakePlatform(), modes);
@@ -79,15 +108,26 @@ final class SwitchHarness {
 
     private SwitchHarness(FakeWorldPort worlds, String fallbackModeId, ModeLookup lookupOverride,
                           com.hydrokarbs.engine.port.PlatformPort platform, MatchMode... modes) {
+        this(worlds, fallbackModeId, lookupOverride, platform, null, false, modes);
+    }
+
+    private SwitchHarness(FakeWorldPort worlds, String fallbackModeId, ModeLookup lookupOverride,
+                          com.hydrokarbs.engine.port.PlatformPort platform, List<String> seamOverride,
+                          boolean worldClearerThrows, MatchMode... modes) {
         this.worlds = worlds;
+        // ★v1.9(27 号):接缝时序表与假件共用一份(sticky 装配传入;非 sticky 装配本地
+        // 新建,只承载清场记录、假件 release/discardSession 不录)——清场 lambda 与假件
+        // release/discardSession 同写一份列表,主线程直跑下列表顺序即真实调用序。
+        this.seamLog = seamOverride != null ? seamOverride : new ArrayList<>();
         for (MatchMode mode : modes) {
             registry.register(fixedProvider(mode));
         }
-        // 自理临时模板根 + 注册式地图 m1/m2(★文件式装载通道已删,造数走 MapTestKit 注册 fixture)
-        Path templatesRoot = MapTestKit.newTemplatesRoot();
-        maps = new MapRegistry(templatesRoot);
-        MapTestKit.registered(maps, templatesRoot, "m1", TAG);
-        MapTestKit.registered(maps, templatesRoot, "m2", TAG);
+        // 自理临时父目录 + 注册式地图 m1/m2(★文件式装载通道已删,造数走 MapTestKit 注册 fixture;
+        // ★v1.8 无模板根——声明按路径直交)
+        Path mapsDir = MapTestKit.newMapsDir();
+        maps = new MapRegistry();
+        MapTestKit.registered(maps, mapsDir, "m1", TAG);
+        MapTestKit.registered(maps, mapsDir, "m2", TAG);
         Logger logger = Logger.getLogger("switch-harness");
         logger.setUseParentHandlers(false);
         logger.addHandler(new java.util.logging.Handler() {
@@ -104,6 +144,16 @@ final class SwitchHarness {
             public void close() {
             }
         });
+        // ★v1.9(27 号)记录型清场 lambda(参照 relocations::add 先例):不抛路径记录
+        // from/to 与时序;抛异常路径(throwingWorldClear)供「失败不阻塞」断言组。
+        BiConsumer<World, World> worldClear = worldClearerThrows
+                ? (from, to) -> {
+                    throw new IllegalStateException("clear-boom");
+                }
+                : (from, to) -> {
+                    worldClears.add(new WorldClear(from, to));
+                    seamLog.add("worldClear");
+                };
         service = new SessionServiceImpl.Builder()
                 .modes(lookupOverride != null ? lookupOverride : registry)
                 .worlds(worlds)
@@ -115,6 +165,11 @@ final class SwitchHarness {
                 .mainExecutor(Runnable::run)
                 .hubRelocator(relocations::add)
                 .safeStateCleaner(cleanups::add)
+                .worldClearer(worldClear)
+                .hubWorldClearer(world -> {
+                    hubWorldClears.add(world);
+                    seamLog.add("hubWorldClear");
+                })
                 .logger(logger)
                 .build();
         ticker = new EngineTicker(null, service);   // Plugin 位置传 null:不 start,直调 tickAll
@@ -171,24 +226,17 @@ final class SwitchHarness {
 
     // ── 模式便捷构造 ─────────────────────────────────────────────
 
-    /** 空组件表模式(缺省去向=回退)。 */
+    /** 空组件表模式(无显式去向的结束回落配置的回退模式,31 号)。 */
     static MatchMode mode(String id, int min, int max) {
         return mode(id, min, max, new LinkedHashMap<>());
     }
 
-    /** 带组件表的模式。 */
+    /** 带组件表的模式(缺省去向分量已随 31 号退场,原带 transition 参重载删除)。 */
     static MatchMode mode(String id, int min, int max,
                           LinkedHashMap<String, com.hydrokarbs.engine.component.MatchModeComponent.Specification<?>> specs) {
-        return mode(id, min, max, specs, MatchModeMeta.DefaultTransition.FALLBACK);
-    }
-
-    /** 带组件表与缺省去向的模式。 */
-    static MatchMode mode(String id, int min, int max,
-                          LinkedHashMap<String, com.hydrokarbs.engine.component.MatchModeComponent.Specification<?>> specs,
-                          MatchModeMeta.DefaultTransition transition) {
         MatchMode.Builder builder = new MatchMode.Builder(id)
                 .mapTags(TAG)
-                .meta(new MatchModeMeta(false, min, max, transition));
+                .meta(new MatchModeMeta(false, min, max));
         specs.forEach(builder::addComponent);
         return builder.build();
     }

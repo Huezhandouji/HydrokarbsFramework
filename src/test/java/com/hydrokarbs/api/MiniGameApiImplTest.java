@@ -33,6 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.SessionComponentContributionRegistry;
 import com.hydrokarbs.engine.event.SessionEventBus;
 import com.hydrokarbs.engine.mode.MatchMode;
@@ -59,7 +60,6 @@ import com.hydrokarbs.api.view.MatchModeInfo;
 import com.hydrokarbs.api.view.SessionInfo;
 import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
-import com.hydrokarbs.map.RegionSet;
 import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
 
@@ -94,8 +94,8 @@ class MiniGameApiImplTest {
     void setUp() {
         // 配置源全回落缺省(复用 testkit 手法;装载链已由 ConfigRepositoryTest 覆盖)
         modeRegistry = new MatchModeRegistry(id -> OfflineAssembly.cfg());
-        // 地图目录带模板根(必填;注册期模板目录校验依据——造数走 MapTestKit fixture)
-        mapRegistry = new MapRegistry(templatesRoot());
+        // 地图目录(★v1.8 去模板根:无参构造;造数走 MapTestKit,世界目录由用例先落盘)
+        mapRegistry = new MapRegistry();
         fakeService = new FakeSessionService();
         // 注入单线程假主线程(生产行 = Threads::runOnMain;离线以可指认线程替代)
         mainExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -117,9 +117,9 @@ class MiniGameApiImplTest {
         mainExecutor.shutdownNow();
     }
 
-    /** 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定)。 */
-    private Path templatesRoot() {
-        return tempDir.resolve("maps").resolve("templates");
+    /** 声明目录落盘挂点(★v1.8:无模板根约定,目录即声明本体)。 */
+    private Path mapsDir() {
+        return tempDir.resolve("maps");
     }
 
     // ── ① 快照不变性(7.1 要点 1:转换点一次性取值,不持活引用) ──────────
@@ -198,12 +198,12 @@ class MiniGameApiImplTest {
     // ── ④ 目录顺序 = 注册序(14.21:不排序、不过滤) ───────────────
 
     @Test
-    void directoryOrderMatchesRegistrationOrder() {
+    void directoryOrderMatchesRegistrationOrder() throws Exception {
         modeRegistry.register(provider("alpha"));
         modeRegistry.register(provider("beta"));
         modeRegistry.register(provider("gamma"));
-        MapTestKit.registered(mapRegistry, templatesRoot(), fullMap("map_a", "地图A"));
-        MapTestKit.registered(mapRegistry, templatesRoot(), minimalMap("map_b"));
+        registerLoudly(fullMap(mapsDir().resolve("map_a")));
+        registerLoudly(minimalMap(mapsDir().resolve("map_b")));
 
         assertEquals(List.of("alpha", "beta", "gamma"),
                 api.modes().stream().map(MatchModeInfo::id).toList(),
@@ -217,12 +217,14 @@ class MiniGameApiImplTest {
         assertTrue(api.mode("ghost").isEmpty(), "mode() 缺失 → empty(7.1 失败语义列)");
     }
 
-    /** 目录快照字段逐项映射(7.1 步骤 3/4 转换表;MiniMessage 序列化 + 枚举存 name())。 */
+    /** 目录快照字段逐项映射(7.1 步骤 3/4 转换表;MiniMessage 序列化 + 枚举存 name());
+     *  ★v1.8 视图收缩后:id 路径派生、tags/reset 走约定键,displayName/world 分量已删;
+     *  ★v1.13/31 号:defaultTransition 分量随缺省去向管线退场删除(断言同步移除)。 */
     @Test
-    void directorySnapshotsMapFieldsPerContract() {
+    void directorySnapshotsMapFieldsPerContract() throws Exception {
         modeRegistry.register(provider("alpha"));
-        MapTestKit.registered(mapRegistry, templatesRoot(), fullMap("map_a", "地图A"));
-        MapTestKit.registered(mapRegistry, templatesRoot(), minimalMap("map_b"));
+        registerLoudly(fullMap(mapsDir().resolve("map_a")));
+        registerLoudly(minimalMap(mapsDir().resolve("map_b")));
 
         MatchModeInfo modeInfo = api.mode("alpha").orElseThrow();
         assertTrue(modeInfo.displayName().startsWith("<red>") && modeInfo.displayName().contains("竞技"),
@@ -230,19 +232,17 @@ class MiniGameApiImplTest {
         assertEquals(List.of("<red>第一行", "<red>第二行"), modeInfo.description(),
                 "description 逐行序列化(MiniMessage 对串尾闭合标签省略——再解析等价)");
         assertNull(modeInfo.icon(), "icon 未声明为 null(MatchMode 既有口径,消费方自理)");
-        assertEquals("ROTATION", modeInfo.defaultTransition(), "枚举存 name()(§0.5.3 末行)");
         assertEquals(2, modeInfo.minParticipants());
         assertEquals(10, modeInfo.maxParticipants());
         assertFalse(modeInfo.recordsHistory());
 
         MapInfo full = api.maps().get(0);
-        assertEquals("地图A", full.displayName());
-        assertEquals("world_a", full.world());
-        assertEquals(Set.of("arena"), full.tags());
-        assertEquals("TEMPLATE_RESTORE", full.resetStrategy());
+        assertEquals("map_a", full.id(), "id = 声明目录名(路径派生)");
+        assertEquals(Set.of("arena"), full.tags(), "tags = 声明 TAGS 词料键读取");
+        assertEquals("TEMPLATE_RESTORE", full.resetStrategy(), "枚举存 name()(声明 resetStrategy)");
         MapInfo minimal = api.maps().get(1);
-        assertEquals("map_b", minimal.displayName(), "display-name 缺省 = id(MapDefinition 口径)");
-        assertEquals("REUSE_DIRTY", minimal.resetStrategy(), "reset-strategy 缺省 = REUSE_DIRTY");
+        assertEquals("map_b", minimal.id(), "id = 声明目录名(路径派生)");
+        assertEquals("REUSE_DIRTY", minimal.resetStrategy(), "resetStrategy 缺省 = REUSE_DIRTY(二参构造口径)");
     }
 
     // ── ⑤ createSession(recipe):未知模式响亮抛;成功路径返回快照与 fake 会话一致 ──
@@ -391,21 +391,26 @@ class MiniGameApiImplTest {
                         .displayName(Component.text("竞技", NamedTextColor.RED))
                         .description(List.of(Component.text("第一行", NamedTextColor.RED),
                                 Component.text("第二行", NamedTextColor.RED)))
-                        .meta(new MatchModeMeta(false, 2, 10,
-                                MatchModeMeta.DefaultTransition.ROTATION))
+                        .meta(new MatchModeMeta(false, 2, 10))
                         .build();
             }
         };
     }
 
-    /** 全量声明的测试地图(TEMPLATE_RESTORE 路径)。 */
-    private static MapDefinition fullMap(String id, String displayName) {
-        return new MapDefinition(id, displayName, "world_a", Set.of("arena"), null, Map.of(),
-                RegionSet.empty(), List.of(), Map.of(), ResetStrategy.TEMPLATE_RESTORE);
+    /** 全量声明的测试地图(TEMPLATE_RESTORE 路径;★v1.8 新形状,世界目录须先落盘)。 */
+    private static MapDefinition fullMap(Path dir) {
+        return new MapDefinition(dir, ResetStrategy.TEMPLATE_RESTORE,
+                new AttributeBag.Builder().put(MapDefinition.TAGS, Set.of("arena")).build());
     }
 
-    /** 四参最小地图(REUSE_DIRTY 缺省路径;display-name 缺省 = id)。 */
-    private static MapDefinition minimalMap(String id) {
-        return new MapDefinition(id, "world_b", Set.of("arena"), Map.of());
+    /** 最小声明地图(REUSE_DIRTY 缺省路径;标签经 TAGS 词料键)。 */
+    private static MapDefinition minimalMap(Path dir) {
+        return MapTestKit.declaration(dir, Set.of("arena"));
+    }
+
+    /** 落盘声明目录并注册(MapTestKit 直录口的惯用包装;id = 目录名)。 */
+    private void registerLoudly(MapDefinition map) throws Exception {
+        java.nio.file.Files.createDirectories(map.worldDirectoryPath());
+        MapTestKit.registered(mapRegistry, map);
     }
 }

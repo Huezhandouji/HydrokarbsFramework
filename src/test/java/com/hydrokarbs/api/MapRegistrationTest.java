@@ -23,23 +23,21 @@ import com.hydrokarbs.engine.session.MatchModeSelection;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
 import com.hydrokarbs.engine.session.SwitchResult;
-import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.testkit.FakeWorldPort;
 import com.hydrokarbs.testkit.OfflineApi;
 import com.hydrokarbs.testkit.TestPlugins;
 
 /**
- * 地图注册通道端到端(★54~★55,★v1.2;7.5 施工文档步骤 8/11;20-D1~D7,离线):
- * 注册({@code registerMap})→ 目录列出 → 可被切换选中并开局 → 摘除
- * ({@code unregisterMap});坏声明响亮拒绝(模板缺失/重复 id 点名先到者);
- * 正用摘除被拒且地图照常可用(摘除拒绝是特性,不是障碍)。
+ * 地图注册通道端到端(★54~★55,★v1.2;7.5 施工文档步骤 8/11;20-D1~D7,离线;
+ * ★v1.8 去模板根新基准):注册({@code registerMap})→ 目录列出 → 可被切换选中
+ * 并开局 → 摘除({@code unregisterMap});坏声明响亮拒绝(声明路径缺失/非目录带
+ * 完整绝对路径、同一路径重复注册点名先到者);正用摘除被拒且地图照常可用
+ * (摘除拒绝是特性,不是障碍)。
  *
  * <p><b>离线口径</b>:{@code Plugin} 以动态代理占位(身份键;镜像
  * {@code FakeWorldPort#proxyWorld} 的「测试类型签名引用 Bukkit 类型、传代理不碰
- * Bukkit 静态」先例);模板目录以 {@code @TempDir} 落盘;切换经真会话服务 +
- * {@link FakeWorldPort}(复用 testkit,镜像 SwitchHarness 装配)。
- * (原「注册式不经 reload」段与文件通道测试随文件式装载通道删除收敛——
- * 单注册通道语义现由 MapRegistryTest/本类承载。)
+ * Bukkit 静态」先例);世界目录以 {@code @TempDir} 落盘(声明按路径直交,无模板根);
+ * 切换经真会话服务 + {@link FakeWorldPort}(复用 testkit,镜像 SwitchHarness 装配)。
  */
 class MapRegistrationTest {
 
@@ -50,25 +48,25 @@ class MapRegistrationTest {
 
     private OfflineApi harness;
     private Plugin provider;
+    private Path mapsDir;
 
     @BeforeEach
     void setUp() {
-        // 模板根镜像生产行形状:<数据目录>/maps/templates(20-D2 约定;目录由用例按需造)
-        harness = new OfflineApi(tempDir.resolve("maps").resolve("templates"),
-                FakeWorldPort.immediate(), OfflineApi.mode(MODE_ID, OfflineApi.TAG));
+        harness = new OfflineApi(FakeWorldPort.immediate(), OfflineApi.mode(MODE_ID, OfflineApi.TAG));
         provider = TestPlugins.named("MapRegistrationTest-plugin");
+        mapsDir = tempDir.resolve("maps");                  // 声明目录落盘挂点(★v1.8:无模板根约定)
     }
 
-    // ── ★54 注册端到端:解包(造模板目录)→ registerMap → 列出 → 可选中并开局 ──
+    // ── ★54 注册端到端:落盘(造声明目录)→ registerMap → 列出 → 可选中并开局 ──
 
     @Test
     void registeredMapIsListedSelectableAndOpens() throws Exception {
-        // 14.39:onEnable 顺序 = 解包模板(@TempDir 代 saveResource 落盘)→ 构造 MapDefinition → registerMap
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("their_arena"));
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("their_arena2"));
+        // 14.39:onEnable 顺序 = 落盘世界目录(@TempDir 代落盘)→ 构造 MapDefinition → registerMap
+        Files.createDirectories(mapsDir.resolve("their_arena"));
+        Files.createDirectories(mapsDir.resolve("their_arena2"));
 
-        var info = harness.api.registerMap(provider, OfflineApi.map("their_arena", OfflineApi.TAG));
-        harness.api.registerMap(provider, OfflineApi.map("their_arena2", OfflineApi.TAG));
+        var info = harness.api.registerMap(provider, OfflineApi.map(mapsDir.resolve("their_arena"), OfflineApi.TAG));
+        harness.api.registerMap(provider, OfflineApi.map(mapsDir.resolve("their_arena2"), OfflineApi.TAG));
         assertEquals("their_arena", info.id(), "成功返回 MapInfo 快照(07 §7.1)");
         assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("their_arena")),
                 "api.maps() 列出注册式地图(20-D6)");
@@ -92,8 +90,8 @@ class MapRegistrationTest {
 
     @Test
     void unregisterRemovesButRefusedWhileInUse() throws Exception {
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("their_arena"));
-        harness.api.registerMap(provider, OfflineApi.map("their_arena", OfflineApi.TAG));
+        Files.createDirectories(mapsDir.resolve("their_arena"));
+        harness.api.registerMap(provider, OfflineApi.map(mapsDir.resolve("their_arena"), OfflineApi.TAG));
         Session session = harness.createSession("s1", MODE_ID);   // 正用 their_arena
 
         IllegalStateException refused = assertThrows(IllegalStateException.class,
@@ -120,19 +118,21 @@ class MapRegistrationTest {
         assertTrue(harness.api.maps().isEmpty());
     }
 
-    // ── ★55 坏声明响亮拒绝:模板缺失 / 重复 id 点名先到者 ──────────────────
+    // ── ★55 坏声明响亮拒绝:声明路径缺失带绝对路径 / 同一路径重复注册点名先到者 ──
 
     @Test
-    void missingTemplateDirIsLoudlyRejectedWithDetail() throws Exception {
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("their_arena"));
-        harness.api.registerMap(provider, OfflineApi.map("their_arena", OfflineApi.TAG));
+    void missingWorldDirIsLoudlyRejectedWithAbsolutePath() throws Exception {
+        Files.createDirectories(mapsDir.resolve("their_arena"));
+        harness.api.registerMap(provider, OfflineApi.map(mapsDir.resolve("their_arena"), OfflineApi.TAG));
 
-        MapDefinition ghost = OfflineApi.map("ghost_map", OfflineApi.TAG);   // 未造模板目录
+        Path ghostDir = mapsDir.resolve("ghost_map");                       // 未落盘
+        var ghost = OfflineApi.map(ghostDir, OfflineApi.TAG);
         IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
                 () -> harness.api.registerMap(provider, ghost),
-                "模板目录缺失 → 响亮抛(20-D3;14.39:注册期校验才有意义)");
+                "世界目录缺失 → 响亮抛(20-D3;14.39:注册期校验才有意义)");
         assertTrue(missing.getMessage().contains("ghost_map"), "点名地图 id: " + missing.getMessage());
-        assertTrue(missing.getMessage().contains("templates"), "带解析路径(20-D2 detail 口径)");
+        assertTrue(missing.getMessage().contains(ghostDir.toAbsolutePath().toString()),
+                "带完整绝对路径(★v1.8 detail 口径): " + missing.getMessage());
 
         // 框架与既有地图照常(★55:拒绝不留半注册态)
         assertTrue(harness.api.maps().stream().anyMatch(map -> map.id().equals("their_arena")));
@@ -140,14 +140,15 @@ class MapRegistrationTest {
     }
 
     @Test
-    void duplicateIdAgainstRegisteredMapNamesFirstArriver() throws Exception {
-        Files.createDirectories(tempDir.resolve("maps").resolve("templates").resolve("shared"));
-        harness.api.registerMap(provider, OfflineApi.map("shared", OfflineApi.TAG));   // 插件先到
+    void duplicateRegistrationOfSamePathNamesFirstArriver() throws Exception {
+        Files.createDirectories(mapsDir.resolve("shared"));
+        harness.api.registerMap(provider, OfflineApi.map(mapsDir.resolve("shared"), OfflineApi.TAG));
 
+        // 同一路径(规范化后)再注册 → 路径派生 id 同源,必撞查重闸(★v1.8)
         IllegalStateException duplicate = assertThrows(IllegalStateException.class,
                 () -> harness.api.registerMap(TestPlugins.named("another-plugin"),
-                        OfflineApi.map("shared", OfflineApi.TAG)),
-                "重复 id → 同一闸响亮抛(同一注册通道,20-D3)");
+                        OfflineApi.map(mapsDir.resolve("shared"), OfflineApi.TAG)),
+                "重复注册同一路径 → 同一闸响亮抛(同一注册通道,20-D3)");
         assertTrue(duplicate.getMessage().contains("先到者")
                 && duplicate.getMessage().contains("插件注册"), "点名先到者与其来源: " + duplicate.getMessage());
     }

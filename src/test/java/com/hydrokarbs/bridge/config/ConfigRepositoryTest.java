@@ -84,6 +84,24 @@ class ConfigRepositoryTest {
                 .split(":")[1].trim(), "已存在的用户配置不得被默认资源覆盖");
     }
 
+    /** 嵌套默认资源(★v1.13/31 号:modes/limbo.yml):父目录自动创建、释放、二次不覆盖。 */
+    @Test
+    void saveDefaultsReleasesNestedResourceWithParentDirectoriesIdempotently() throws IOException {
+        Files.createDirectories(defaultsDir.resolve("modes"));
+        Files.writeString(defaultsDir.resolve("modes/limbo.yml"),
+                "# 出厂空模式零配置面(注释-only)\n", StandardCharsets.UTF_8);
+
+        repository.saveDefaults();
+        Path limbo = dataDir.resolve("modes/limbo.yml");
+        assertTrue(Files.isRegularFile(limbo),
+                "嵌套默认资源的目标父目录自动创建并释放(只建 dataDir 会 NoSuchFileException)");
+
+        Files.writeString(limbo, "# 服主改动\n", StandardCharsets.UTF_8);
+        repository.saveDefaults();
+        assertEquals("# 服主改动", Files.readAllLines(limbo, StandardCharsets.UTF_8).get(0),
+                "二次调用不覆盖已释放的嵌套资源(幂等)");
+    }
+
     @Test
     void loadAllOnEmptyDirsYieldsEmptyStateWithoutThrowing() throws IOException {
         repository.loadAll();

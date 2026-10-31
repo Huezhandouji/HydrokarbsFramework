@@ -14,10 +14,13 @@ import org.bukkit.Material;
  *       MiniMessage <b>序列化串</b>(消费者可再解析;§14.10 纪律随消费方——玩家可控串
  *       不得直接喂 MiniMessage,序列化发生在框架侧对模式声明文案的转换点);</li>
  *   <li>{@code icon}:Bukkit {@link Material} 原样;未声明时为 {@code null}
- *       ({@code MatchMode#icon()} 既有口径:消费方自理);</li>
- *   <li>{@code defaultTransition}:枚举存 {@code name()} 字符串——冻结面不被引擎枚举
- *       演进绑死(拒绝码收缩先例,§0.5.3 末行)。</li>
+ *       ({@code MatchMode#icon()} 既有口径:消费方自理)。</li>
  * </ul>
+ *
+ * <p><b>★v1.13(31 号修正案)收缩注</b>:原第九分量 {@code defaultTransition}
+ * 随缺省去向管线退场删除(无显式去向的结束一律回落 {@code session.fallback-mode},
+ * 引擎侧枚举 {@code MatchModeMeta.DefaultTransition} 同步删除)——消费过该分量的
+ * 旧编译物需按 API_VERSION 8 重编译(经用户裁决不设双轨过渡期)。
  *
  * <p><b>第三方可见性(7.2)</b>:第三方插件经 {@code MatchModeProvider} 注册
  * (ServicesManager 收录,§7.2/§13.4)入目录后,服主经 {@code MiniGameApi#modes()}
@@ -29,7 +32,7 @@ import org.bukkit.Material;
  */
 public record MatchModeInfo(String id, String displayName, List<String> description,
                             Material icon, Set<String> mapTags, boolean recordsHistory,
-                            int minParticipants, int maxParticipants, String defaultTransition) {
+                            int minParticipants, int maxParticipants) {
 
     public MatchModeInfo {
         description = List.copyOf(description);

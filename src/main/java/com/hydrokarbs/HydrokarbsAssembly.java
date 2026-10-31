@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.bukkit.Bukkit;
@@ -24,7 +25,8 @@ import com.hydrokarbs.api.MiniGameApiImpl;
 import com.hydrokarbs.bridge.config.ConfigRepository;
 import com.hydrokarbs.bridge.world.BukkitWorldLoader;
 import com.hydrokarbs.bridge.world.WorldPortImpl;
-import com.hydrokarbs.command.MatchCommand;
+import com.hydrokarbs.command.HydrokarbsCommand;
+import com.hydrokarbs.command.SessionCommand;
 import com.hydrokarbs.engine.EngineTicker;
 import com.hydrokarbs.engine.component.SessionComponentContributionRegistry;
 import com.hydrokarbs.engine.event.SessionEventBus;
@@ -90,9 +92,8 @@ public final class HydrokarbsAssembly {
 
         // ── 配置与模式注册(装载时序不变式:saveDefaults 先行 → loadAll → discover)──
         var dataDir = plugin.getDataFolder().toPath();
-        var templatesRoot = dataDir.resolve("maps").resolve("templates");   // §15.2 约定(世界口与地图注册口同源)
         var configRepository = new ConfigRepository(dataDir,
-                ConfigRepository.DefaultResourceSource.of(plugin), templatesRoot);
+                ConfigRepository.DefaultResourceSource.of(plugin));
         try {
             configRepository.saveDefaults();                   // ② 首次释放默认资源(幂等)
             configRepository.loadAll();                        // ③ 全量装载(单文件失败跳过+SEVERE)
@@ -104,12 +105,11 @@ public final class HydrokarbsAssembly {
 
         ConfigView cfg = configRepository;                     // ⑥ 惰性只读配置面
 
-        // ── 世界端口(模板根 = 数据目录 maps/templates,§15.2;副本根 = 服务器世界容器;
+        // ── 世界端口(复制源 = 各声明自带路径,★v1.8 去模板根;副本根 = 服务器世界容器;
         //    onEnable 零模板预复制,§14.2) ─────────────────────────────────
         var worldIo = Executors.newVirtualThreadPerTaskExecutor();   // 副本复制/删除 = 虚拟线程(§3.7)
         var worldPort = new WorldPortImpl(
                 new BukkitWorldLoader(),
-                templatesRoot,
                 Bukkit.getWorldContainer().toPath(),
                 Threads::runOnMain,                             // 世界装卸 = 主线程(§3.7)
                 worldIo,
@@ -124,12 +124,16 @@ public final class HydrokarbsAssembly {
                 .maps(configRepository.maps())
                 .configSource(configRepository::modeConfig)
                 .policy(sessionPolicy(cfg))
-                // 空串 = 回退链跳级(直接二级解散兜底);框架不设出厂回退模式
+                // 回退目标 = session.fallback-mode(★v1.13/31 号:默认资源值 = 出厂空模式 id,
+                // 经上方 discover 的 SPI 半边注册兜底);代码级读默认维持空串——单一默认源 =
+                // 默认资源;空串/未注册 = 无效回退,回退需求时 SEVERE + 强制解散
                 .fallbackModeId(cfg.get("session.fallback-mode", ""))
                 .engineServices(new EngineServices(platformPort(plugin)))
                 .mainExecutor(Threads::runOnMain)              // future 拒绝完成点回主线程
                 .hubRelocator(hubRelocator())                  // 解散传送主城出生点(Bukkit 触点在此)
                 .safeStateCleaner(safeStateCleaner())          // 三级兜底:清通用安全态
+                .worldClearer(worldClearer())                  // ★v1.9(27 号):切换清场——旧世界遗留人员 → 目标世界出生点
+                .hubWorldClearer(hubWorldClearer())            // ★v1.9(27 号):解散清场——地图世界遗留人员 → 主城出生点(先名册后世界)
                 .sessionEventMirror(sessionEvents::publish)    // ★v1.1-D3 镜像:会话事件同步汇聚到 ⑨(7.5 决策 12)
                 .build();                                      // ⑧
 
@@ -148,11 +152,15 @@ public final class HydrokarbsAssembly {
 
         plugin.getServer().getPluginManager()
                 .registerEvents(new SessionIngestListener(sessionSvc), plugin);   // ⑫ 会话入口监听
-        MatchCommand.register(plugin, sessionSvc, modeRegistry);                  // ⑬ Brigadier 主命令
+        // ⑬ Brigadier 命令树(子命令经 command/Subcommand seam 装配:新增命令 = 新类 + 本列表加一行)
+        HydrokarbsCommand.register(plugin, List.of(new SessionCommand(sessionSvc)));
 
         // ⑭ 公共 API 注册(ServicesManager 同一机制,ServicePriority.Normal——§7.2 表;
         //    薄委托实现,主线程回程口 = Threads::runOnMain;★v1.7 冻结面 = 17 方法;
-        //    fallbackModeId 惰性读 session.fallback-mode——摘除回退编排的配置源,§14.21)
+        //    fallbackModeId 惰性读 session.fallback-mode——摘除回退编排的配置源,§14.21;
+        //    ★v1.13/31 号:默认资源值已变为出厂空模式 id(代码级默认维持空串,单一默认源
+        //    = 默认资源)——回退目标可用时摘除会话 force 切过去,被摘模式经 SPI 注册不在
+        //    任何提供方归属簿记,第三方不可摘)
         var miniGameApi = new MiniGameApiImpl(sessionSvc, modeRegistry,
                 configRepository.maps(), sessionEvents, contributions,
                 Threads::runOnMain, () -> cfg.get("session.fallback-mode", ""));
@@ -194,7 +202,8 @@ public final class HydrokarbsAssembly {
                 cfg.get("session.disconnect-grace-seconds", SessionPolicy.DEFAULT_DISCONNECT_GRACE_SECONDS));
     }
 
-    // ── 平台函数注入(引擎不直碰 Bukkit;解散传送与兜底清态的落点) ──────────
+    // ── 平台函数注入(引擎不直碰 Bukkit;解散传送、兜底清态与世界清场的落点;
+    //    ★v1.9/27 号:切换/解散世界清场两口同收敛于本节,L0 注入) ──────────
 
     /** 平台端口:日志/插件句柄/一次性延迟任务(实例侧 later 的调度口)。 */
     private static PlatformPort platformPort(JavaPlugin plugin) {
@@ -218,19 +227,60 @@ public final class HydrokarbsAssembly {
         };
     }
 
+    /** 主城出生点单一来源(★v1.9/27 号):服务器主世界出生点(hubRelocator 与
+     *  解散世界清场 hubWorldClearer 同源;空表返 null——既有空守卫语义);设计未细化,
+     *  最小自洽。 */
+    private static Location hubSpawn() {
+        List<World> worlds = Bukkit.getWorlds();
+        return worlds.isEmpty() ? null : worlds.get(0).getSpawnLocation();
+    }
+
     /** 解散成员传送:主城出生点 = 服务器主世界出生点(设计未细化,最小自洽)。 */
     private static Consumer<Collection<UUID>> hubRelocator() {
         return members -> {
-            List<World> worlds = Bukkit.getWorlds();
-            if (worlds.isEmpty()) {
+            Location spawn = hubSpawn();       // ★v1.9(27 号):出生点单一来源 = hubSpawn()(逐次解析,语义与原实现一致)
+            if (spawn == null) {
                 return;
             }
-            Location spawn = worlds.get(0).getSpawnLocation();
             for (UUID uuid : members) {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null) {
                     player.teleport(spawn);
                 }
+            }
+        };
+    }
+
+    /**
+     * 切换世界清场(★v1.9/27 号):旧世界内全部在线玩家({@code getPlayers()}——
+     * 遗留人员 = 世界内全员,不以会话名册为界)逐人传往目标地图副本世界的出生点
+     * ({@code getSpawnLocation()};v1.8 起 MapDefinition 无出生点字段,落点 = 副本
+     * 世界自身出生点)。调用点 = 切换内核 B3.5(同世界复用先行)与 B5 finally(异图
+     * 殿后);个别传送异常上抛由内核 best-effort WARN 兜住,不阻塞切换。
+     */
+    private static BiConsumer<World, World> worldClearer() {
+        return (from, to) -> {
+            Location spawn = to.getSpawnLocation();
+            for (Player player : from.getPlayers()) {
+                player.teleport(spawn);
+            }
+        };
+    }
+
+    /**
+     * 解散世界清场(★v1.9/27 号):地图世界内全部在线玩家(遗留人员)传往主世界
+     * 出生点——与 {@link #hubRelocator} 共用 {@link #hubSpawn()} 单一来源。调用点 =
+     * dissolveNow 的 finally(名册传送之后的「先名册后世界」接缝,
+     * worlds.discardSession 之前);best-effort,失败 WARN 不阻塞解散。
+     */
+    private static Consumer<World> hubWorldClearer() {
+        return world -> {
+            Location spawn = hubSpawn();
+            if (spawn == null) {
+                return;
+            }
+            for (Player player : world.getPlayers()) {
+                player.teleport(spawn);
             }
         };
     }

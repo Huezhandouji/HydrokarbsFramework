@@ -15,29 +15,33 @@ import org.junit.jupiter.api.Timeout;
 
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.SessionEvent;
+import com.hydrokarbs.engine.mode.MatchMode;
 import com.hydrokarbs.engine.session.DissolveReason;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeSelection;
 import com.hydrokarbs.engine.session.Session;
 import com.hydrokarbs.engine.session.SessionId;
+import com.hydrokarbs.engine.session.SessionPolicy;
 import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SessionState;
 import com.hydrokarbs.engine.session.SwitchResult;
 import com.hydrokarbs.testkit.ProbeComponent;
 
 /**
- * ★v1.3(D3/R3)发行配置中立化空值语义(21 号修正案;16 §16.2 零新增编号——
- * 空值语义由既有 ★14 切换原子性断言族覆盖,本类为其空值侧的最小锁定):
+ * 空值/缺省语义(★v1.3 首建,★v1.13/31 号修正案 <b>supersede</b> 整类重立——
+ * 缺省去向管线退场 + 出厂空模式兜底后,首切失败与回退无效的处置全线收敛):
  * <ol>
- *   <li>初始模式<b>空</b>或<b>未注册</b> → 启动记 WARN(不再 ERROR)、会话保留
- *       待后补切换(后补切换真实可用);</li>
- *   <li>回退模式<b>空</b> → 回退链跳过一级(fallback 切换)、记 WARN 后直接二级
- *       dissolve 兜底(FALLBACK_DISSOLVE 事件 + 成员安置);</li>
- *   <li>回退模式<b>未注册</b> → 既有「无可用回退目标 → dissolve」分支原样
- *       (A1 拒绝 → 二级解散,SEVERE 兜底日志不变)。</li>
+ *   <li>初始模式<b>空</b>或<b>未注册</b> → 启动记 WARN + 会话泊回退模式(31 号:
+ *       不再「无实例驻留」);泊回退走完整落位并记切换时刻——后补非 force 切换在
+ *       最短驻留窗口内被防护①拒(相对旧「WARN+保留、立即可切」是行为回退,登记),
+ *       推时钟过窗口或传 force 后可用;</li>
+ *   <li>回退模式<b>空串</b> → SEVERE(不再 WARN)+ 即时 FALLBACK_DISSOLVE 解散 +
+ *       成员安置(默认配置下出厂空模式兜底,空串 = 配置错误);</li>
+ *   <li>回退模式<b>未注册</b> → 回退切换被拒 → SEVERE(带 detail)+ 解散
+ *       (fallbackSwitch 单点判据,与空串同归)。</li>
  * </ol>
- * 框架发行配置默认不含任何模式 id(框架不设出厂模式);引擎对空串照走 A1
- * 未注册拒绝,源码零模式字面量(§14.21 纪律不变)。
+ * 附:模式侧空 mapTags = 通配任意地图(31 号决策 B)——无 mapId 选区直切成功。
+ * 引擎源码零模式字面量(§14.21 纪律不变;出厂模式 id 只住 provider 类与默认资源)。
  */
 @Timeout(30)
 class NeutralDefaultsSemanticsTest {
@@ -46,10 +50,10 @@ class NeutralDefaultsSemanticsTest {
         return new MatchModeSelection(modeId, java.util.Optional.empty(), true);
     }
 
-    // ── ① 初始模式空/未注册:WARN + 会话保留待后补切换 ──────────────────
+    // ── ① 初始模式空/未注册:WARN + 泊回退;后补受驻留约束(可 force/过窗口) ──
 
     @Test
-    void blankInitialModeWarnsAndKeepsSessionForLaterSwitch() throws Exception {
+    void blankInitialModeWarnsParksOnFallbackThenLaterSwitchWorksAfterDwell() throws Exception {
         SwitchHarness harness = new SwitchHarness("fb", SwitchHarness.mode("fb", 0, 100));
         Session session = harness.service.create(
                 new SessionSpec(new SessionId("s1"), "", List.of(), List.of()));
@@ -57,16 +61,27 @@ class NeutralDefaultsSemanticsTest {
         harness.ticker.tickAll();
 
         assertEquals(1, harness.service.all().size(), "空初始模式不炸启动:会话保留在册");
-        assertEquals(SessionState.RUNNING, session.state(), "会话保留常态(待后补切换)");
-        assertTrue(session.currentInstance().isEmpty(), "空名册待机、无实例");
+        assertEquals(SessionState.RUNNING, session.state(), "泊回退后回常态");
+        assertEquals("fb", session.currentInstance().orElseThrow().modeId(),
+                "首切失败泊回退模式(31 号:不再无实例驻留)");
         assertTrue(harness.logLines.stream().anyMatch(line ->
                         line.startsWith("WARNING") && line.contains("初始模式")),
                 "空初始模式记 WARN: " + harness.logLines);
         assertTrue(harness.logLines.stream().noneMatch(line ->
                         line.startsWith("SEVERE") && line.contains("初始模式")),
-                "初始模式失败不再 SEVERE(v1.3 前为 ERROR,已知问题#5 消除): " + harness.logLines);
+                "首切失败仍不 SEVERE(已知问题#5 消除口径保留): " + harness.logLines);
 
-        // 后补切换真实可用:模式注册后 switchMode 进入运行(「待后补切换」不是空话)
+        // 泊回退已记切换时刻:窗口内非 force 后补被防护①拒(31 号行为回退,登记)
+        SwitchResult.Rejected rejected = assertInstanceOf(SwitchResult.Rejected.class,
+                harness.service.switchMode(session.id(), MatchModeSelection.of("fb"), Handoff.empty())
+                        .get(2, TimeUnit.SECONDS));
+        assertTrue(rejected.detail().contains("驻留不足"),
+                "泊回退后最短驻留窗口内非 force 后补被拒: " + rejected.detail());
+
+        // 推时钟过窗口 → 后补切换真实可用(「待后补切换」不是空话)
+        for (int i = 0; i < SessionPolicy.DEFAULT_MIN_DWELL_TICKS + 2; i++) {
+            session.idleTimers();
+        }
         var future = harness.service.switchMode(session.id(), MatchModeSelection.of("fb"), Handoff.empty());
         harness.ticker.tickAll();
         harness.ticker.tickAll();
@@ -75,7 +90,7 @@ class NeutralDefaultsSemanticsTest {
     }
 
     @Test
-    void unregisteredInitialModeWarnsAndKeepsSession() throws Exception {
+    void unregisteredInitialModeWarnsAndParksOnFallback() throws Exception {
         SwitchHarness harness = new SwitchHarness("fb", SwitchHarness.mode("fb", 0, 100));
         Session session = harness.service.create(
                 new SessionSpec(new SessionId("s1"), "ghost-mode", List.of(), List.of()));
@@ -84,7 +99,7 @@ class NeutralDefaultsSemanticsTest {
 
         assertEquals(1, harness.service.all().size(), "未注册初始模式:会话保留(与空串同语义)");
         assertEquals(SessionState.RUNNING, session.state());
-        assertTrue(session.currentInstance().isEmpty());
+        assertEquals("fb", session.currentInstance().orElseThrow().modeId(), "泊回退模式");
         assertTrue(harness.logLines.stream().anyMatch(line ->
                         line.startsWith("WARNING") && line.contains("初始模式")),
                 "未注册初始模式同样记 WARN: " + harness.logLines);
@@ -93,10 +108,10 @@ class NeutralDefaultsSemanticsTest {
                 "未注册初始模式不再 SEVERE: " + harness.logLines);
     }
 
-    // ── ② 回退模式空:跳过一级回退,直接二级 dissolve ─────────────────────
+    // ── ② 回退模式空串:SEVERE(31 号跳级)+ 即时解散 + 成员安置 ────────────
 
     @Test
-    void blankFallbackSkipsLevelOneAndDissolvesDirectly() throws Exception {
+    void blankFallbackSevereDissolvesImmediatelyWithRelocation() throws Exception {
         List<String> boomLog = new ArrayList<>();
         LinkedHashMap<String, MatchModeComponent.Specification<?>> boomSpecs = new LinkedHashMap<>();
         boomSpecs.put("boom", new ProbeComponent.Spec(boomLog).failOnStart("start-boom"));
@@ -115,20 +130,20 @@ class NeutralDefaultsSemanticsTest {
         }
 
         assertInstanceOf(SwitchResult.Rejected.class, future.get(2, TimeUnit.SECONDS));
-        assertTrue(harness.service.all().isEmpty(), "空 fallback:跳过一级回退,会话直接二级解散");
+        assertTrue(harness.service.all().isEmpty(), "空 fallback:即时二级解散兜底(31 号)");
         assertTrue(events.stream().anyMatch(e -> e instanceof SessionEvent.SessionDissolved dissolved
                         && dissolved.reason() == DissolveReason.FALLBACK_DISSOLVE),
                 "发解散事件(原因 FALLBACK_DISSOLVE)");
         assertTrue(harness.logLines.stream().anyMatch(line ->
-                        line.startsWith("WARNING") && line.contains("回退模式未配置")),
-                "跳级记 WARN 日志: " + harness.logLines);
+                        line.startsWith("SEVERE") && line.contains("回退模式未配置")),
+                "空串回退记 SEVERE(31 号,原 WARN 跳级): " + harness.logLines);
         assertEquals(1, harness.relocations.size(), "成员安置函数被调用(二级兜底)");
     }
 
-    // ── ③ 回退模式未注册:既有「无可用回退目标 → dissolve」分支原样 ───────
+    // ── ③ 回退模式未注册:回退切换被拒 → SEVERE(带 detail)+ 解散 ──────────
 
     @Test
-    void unregisteredFallbackDissolvesViaExistingBranch() throws Exception {
+    void unregisteredFallbackSevereDissolvesWithDetail() throws Exception {
         List<String> boomLog = new ArrayList<>();
         LinkedHashMap<String, MatchModeComponent.Specification<?>> boomSpecs = new LinkedHashMap<>();
         boomSpecs.put("boom", new ProbeComponent.Spec(boomLog).failOnStart("start-boom"));
@@ -147,12 +162,37 @@ class NeutralDefaultsSemanticsTest {
         }
 
         assertInstanceOf(SwitchResult.Rejected.class, future.get(2, TimeUnit.SECONDS));
-        assertTrue(harness.service.all().isEmpty(), "未注册 fallback:A1 拒绝 → 二级解散(既有分支)");
+        assertTrue(harness.service.all().isEmpty(), "未注册 fallback:回退被拒 → 二级解散(31 号单点判据)");
         assertTrue(events.stream().anyMatch(e -> e instanceof SessionEvent.SessionDissolved dissolved
                         && dissolved.reason() == DissolveReason.FALLBACK_DISSOLVE),
                 "发解散事件(原因 FALLBACK_DISSOLVE)");
         assertTrue(harness.logLines.stream().anyMatch(line ->
+                        line.startsWith("SEVERE") && line.contains("回退切换被拒")),
+                "回退被拒记 SEVERE(带 detail): " + harness.logLines);
+        assertTrue(harness.logLines.stream().anyMatch(line ->
                         line.startsWith("SEVERE") && line.contains("回退模式亦装配失败")),
-                "二级兜底 SEVERE 日志原样(机制零改动): " + harness.logLines);
+                "二级兜底 SEVERE 日志原样(dissolveNow 终态行): " + harness.logLines);
+    }
+
+    // ── ④ 模式侧空 mapTags = 通配任意地图(31 号决策 B):无 mapId 直切成功 ──
+
+    @Test
+    void emptyMapTagsModeResolvesMapByWildcardAndSwitches() throws Exception {
+        // 空 mapTags 模式(harness 的便捷口固定带 TAG,这里显式 Build 以落空集)
+        MatchMode wild = new MatchMode.Builder("wild")
+                .meta(new com.hydrokarbs.engine.mode.MatchModeMeta(false, 0, 100))
+                .build();
+        SwitchHarness harness = new SwitchHarness("fb",
+                SwitchHarness.mode("fb", 0, 100),
+                wild);
+        Session session = harness.createSession("s1", "fb");
+
+        var future = harness.service.switchMode(session.id(), forceSel("wild"), Handoff.empty());
+        harness.ticker.tickAll();
+        harness.ticker.tickAll();
+
+        assertInstanceOf(SwitchResult.Succeeded.class, future.get(2, TimeUnit.SECONDS),
+                "空 mapTags 通配:装载序第一张池内图可解析(31 号决策 B)");
+        assertEquals("wild", session.currentInstance().orElseThrow().modeId(), "直切实例就位");
     }
 }

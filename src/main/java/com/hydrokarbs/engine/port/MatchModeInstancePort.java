@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.instance.Participant;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
@@ -34,9 +33,6 @@ public interface MatchModeInstancePort {
 
     /** 实例已存活 tick 数。 */
     long tick();
-
-    /** 实例级键值袋(命名空间 = 组件 id,§2.7)。 */
-    AttributeBag attrs();
 
     /** 入口交接载荷(只读)。 */
     HandoffView handoff();

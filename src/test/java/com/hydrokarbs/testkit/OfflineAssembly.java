@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
+import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.instance.MatchModeInstance;
 import com.hydrokarbs.engine.mode.MatchMode;
@@ -32,9 +33,13 @@ public final class OfflineAssembly {
     private OfflineAssembly() {
     }
 
-    /** 测试地图(最小声明)。 */
+    /**
+     * 测试地图(最小声明;★v1.8 两参新形状——路径占位即声明目录名 test_map,
+     * metadata 传 {@link AttributeBag#empty()}(无标签声明);引擎实例装配不触文件系统,
+     * 无需真实落盘;注册场景请走 MapTestKit)。
+     */
     public static MapDefinition map() {
-        return new MapDefinition("test_map", "test_world", java.util.Set.of(), Map.of());
+        return new MapDefinition(java.nio.file.Path.of("test_map"), AttributeBag.empty());
     }
 
     /** Map 背后的模式参数测试实现(缺路径回落 def;2.2 扩员后的具名假实现)。 */
@@ -133,11 +138,10 @@ public final class OfflineAssembly {
         }
     }
 
-    /** 四件套拼装便捷口:按传入顺序 addComponent(声明序 = 入表序)。 */
+    /** 四件套拼装便捷口:按传入顺序 addComponent(声明序 = 入表序;mapTags 缺省空集)。 */
     public static MatchMode mode(String modeId, LinkedHashMap<String, MatchModeComponent.Specification<?>> specs) {
         MatchMode.Builder builder = new MatchMode.Builder(modeId)
-                .meta(new MatchModeMeta(false, 0, 100,
-                        MatchModeMeta.DefaultTransition.STAY));
+                .meta(new MatchModeMeta(false, 0, 100));
         specs.forEach(builder::addComponent);
         return builder.build();
     }

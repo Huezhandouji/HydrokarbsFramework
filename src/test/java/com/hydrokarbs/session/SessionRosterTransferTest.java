@@ -223,14 +223,16 @@ class SessionRosterTransferTest {
                 "新实例参赛者 uuid 集与名册一致(名册原地位移)");
     }
 
-    /** 触发点②(运行中加入):经声明序第一个裁决实现者;REJECT 不收、名册不登记。 */
+    /** 触发点②(运行中加入):经声明序第一个裁决实现者;REJECT 不收、名册不登记。
+     *  修测试理由(v1.12/30 号,AGENTS §4-12):Kind 收缩为 ADMIT/REJECT 二值,原观战位用例随枚举删除改写为第二例 ADMIT;
+     *  覆盖不缩水(REJECT 留名册不进实例、裁决通过者进实例均保留)。 */
     @Test
-    void midJoinAdmissionGateAdmitsSpectatesAndRejects() {
+    void midJoinAdmissionGateAdmitsAndRejects() {
         LinkedHashMap<String, com.hydrokarbs.engine.component.MatchModeComponent.Specification<?>> specs =
                 new LinkedHashMap<>();
         specs.put("gate", new com.hydrokarbs.testkit.AdmissionGateComponent.Spec(
                 player -> player.equals(UUID.fromString("00000000-0000-0000-0000-000000000002"))
-                        ? new JoinDecision(JoinDecision.Kind.SPECTATE, "观战位")
+                        ? new JoinDecision(JoinDecision.Kind.ADMIT, null)
                         : player.equals(UUID.fromString("00000000-0000-0000-0000-000000000003"))
                                 ? new JoinDecision(JoinDecision.Kind.REJECT, "对局进行中")
                                 : new JoinDecision(JoinDecision.Kind.ADMIT, null)));
@@ -240,15 +242,16 @@ class SessionRosterTransferTest {
         Session session = harness.createSession("admission", "gated");
 
         UUID admit = UUID.fromString("00000000-0000-0000-0000-000000000001");
-        UUID spectate = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID secondAdmit = UUID.fromString("00000000-0000-0000-0000-000000000002");
         UUID reject = UUID.fromString("00000000-0000-0000-0000-000000000003");
 
         assertEquals(JoinResult.Joined.class, harness.service.join(session.id(), admit).getClass());
         assertTrue(session.currentInstance().orElseThrow().participant(admit).isPresent(),
                 "ADMIT 并入当前实例(参赛位)");
-        assertEquals(JoinResult.Joined.class, harness.service.join(session.id(), spectate).getClass());
-        assertTrue(session.currentInstance().orElseThrow().participant(spectate).isPresent(),
-                "SPECTATE 并入当前实例(观战位,会话层只记名册)");
+        assertEquals(JoinResult.Joined.class,
+                harness.service.join(session.id(), secondAdmit).getClass());
+        assertTrue(session.currentInstance().orElseThrow().participant(secondAdmit).isPresent(),
+                "第二例 ADMIT 并入当前实例(参赛位)");
         JoinResult.Rejected refused = assertInstanceOf(JoinResult.Rejected.class,
                 harness.service.join(session.id(), reject));
         assertTrue(refused.detail().contains("对局进行中"), "拒绝 detail 带人读原因: " + refused.detail());

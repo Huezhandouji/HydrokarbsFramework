@@ -57,7 +57,6 @@ import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SwitchResult;
 import com.hydrokarbs.api.view.MatchModeInfo;
 import com.hydrokarbs.map.MapRegistry;
-import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
 import com.hydrokarbs.testkit.SessionProbeComponent;
 import com.hydrokarbs.testkit.TestComponent;
@@ -160,8 +159,7 @@ class ThirdPartyModeRegistrationTest {
             public MatchMode build(MatchModeConfig cfg) {
                 MatchMode.Builder builder = new MatchMode.Builder(id)
                         .mapTags(mapTags)
-                        .meta(new MatchModeMeta(false, 1, 16,
-                                MatchModeMeta.DefaultTransition.STAY));
+                        .meta(new MatchModeMeta(false, 1, 16));
                 int index = 1;
                 for (MatchModeComponent.Specification<?> spec : specs) {
                     builder.addComponent("c" + index++, spec);
@@ -324,7 +322,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void registeredProviderEntersCatalogAndApiView() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
@@ -345,7 +343,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void thirdPartyModeSelectableThroughApiSwitch() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("their-plugin"), provider(PROBE, Set.of("demo")));
@@ -356,7 +354,7 @@ class ThirdPartyModeRegistrationTest {
         RecordingService fake = new RecordingService();
         fake.setSessions(List.of(OfflineAssembly.session("s1")));
         MiniGameApiImpl switching = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
 
@@ -379,7 +377,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void dependencyFailureIsLoudAndNotRegistered() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         MatchModeProvider bad = provider("bad_probe", Set.of("demo"),
@@ -398,7 +396,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void buildFailureIsLoudAndNotRegistered() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
 
@@ -413,7 +411,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void duplicateIdAtRegistrationIsLoudAndKeepsFirstArrival() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(),
                 new SessionComponentContributionRegistry(), Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("first-plugin"), provider(PROBE, Set.of("first")));
@@ -432,7 +430,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterRemovesCatalogAndRedirectsAffectedSessionToFallback() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
         api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
@@ -459,7 +457,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterWithBlankFallbackDissolvesSession() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");   // R3:默认空 = 无 fallback
         var provider = TestPlugins.named("their-plugin");
         api.registerMode(provider, provider(PROBE, Set.of("demo")));
@@ -477,7 +475,7 @@ class ThirdPartyModeRegistrationTest {
     void unregisterWithUnregisteredFallbackDissolvesSession() {
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "ghost_mode");   // 指向未注册 id → 不可用
         var provider = TestPlugins.named("their-plugin");
         api.registerMode(provider, provider(PROBE, Set.of("demo")));
@@ -494,7 +492,7 @@ class ThirdPartyModeRegistrationTest {
         captureImplLog();                          // 回退 WARN 走 Impl 类级日志
         RecordingService fake = new RecordingService();
         MiniGameApiImpl api = new MiniGameApiImpl(fake, registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> FALLBACK);
         api.registerMode(TestPlugins.named("fallback-plugin"), provider(FALLBACK, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
@@ -511,7 +509,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void unregisterForeignModeIsRefusedAndUnknownIdIsNoOp() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         api.registerMode(TestPlugins.named("other-plugin"), provider(PROBE, Set.of("demo")));
         var provider = TestPlugins.named("their-plugin");
@@ -534,7 +532,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void registeredContributionsRemovedByProviderPluginKey() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> spec = new SessionProbeComponent.Spec(new ArrayList<>());
@@ -548,7 +546,7 @@ class ThirdPartyModeRegistrationTest {
     @Test
     void reRegistrationReplacesContributionsWithoutGhostCollision() {
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         var provider = TestPlugins.named("their-plugin");
         SessionComponent.Specification<?> first = new SessionProbeComponent.Spec(new ArrayList<>());
@@ -573,7 +571,7 @@ class ThirdPartyModeRegistrationTest {
     void registerModeLogsDeclaredRequiredApiVersion() {
         captureImplLog();
         MiniGameApiImpl api = new MiniGameApiImpl(new RecordingService(), registry,
-                new MapRegistry(MapTestKit.newTemplatesRoot()),
+                new MapRegistry(),
                 new SessionEventBus(), contributions, Runnable::run, () -> "");
         MatchModeProvider demanding = new MatchModeProvider() {
             @Override
@@ -585,8 +583,7 @@ class ThirdPartyModeRegistrationTest {
             public MatchMode build(MatchModeConfig cfg) {
                 return new MatchMode.Builder(id())
                         .mapTags(Set.of("demo"))
-                        .meta(new MatchModeMeta(false, 1, 16,
-                                MatchModeMeta.DefaultTransition.STAY))
+                        .meta(new MatchModeMeta(false, 1, 16))
                         .build();
             }
 

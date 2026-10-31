@@ -1,8 +1,5 @@
 package com.hydrokarbs.engine.instance;
 
-import java.util.Optional;
-
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.port.SessionView;
 import com.hydrokarbs.engine.session.MatchModeConfig;
@@ -25,9 +22,6 @@ public interface MatchModeInstanceView {
 
     /** 按类型取第一个可赋值组件;未注册返回 null(不抛)。 */
     <T extends MatchModeComponent> T component(Class<T> type);
-
-    /** 读实例属性袋:键不存在返回 empty。 */
-    <T> Optional<T> attr(AttributeBag.Key<T> key);
 
     /** 本次运行的模式参数(只读配置视图)。 */
     MatchModeConfig cfg();

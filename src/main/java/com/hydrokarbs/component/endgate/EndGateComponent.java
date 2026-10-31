@@ -4,7 +4,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.instance.MatchModeInstanceView;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
@@ -103,11 +102,6 @@ public final class EndGateComponent extends MatchModeComponent {
         @Override
         public <T extends MatchModeComponent> T component(Class<T> type) {
             return svc().components().get(type);
-        }
-
-        @Override
-        public <T> Optional<T> attr(AttributeBag.Key<T> key) {
-            return svc().self().attrs().get(key);
         }
 
         @Override

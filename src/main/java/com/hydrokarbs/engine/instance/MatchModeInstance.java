@@ -14,7 +14,6 @@ import java.util.logging.Logger;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.ComponentRegistry;
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.MatchModeInstanceEvent;
@@ -79,7 +78,6 @@ public final class MatchModeInstance implements AutoCloseable {
     private final MatchModeInstanceEventBus bus;
     private final Map<UUID, Participant> participants = new LinkedHashMap<>();
     private final MatchModeInstanceServices svc;    // 组件共享的服务集(self/components/modeInfo)
-    private final AttributeBag attrs = new AttributeBag();
     private final EngineServices engine;
     private final SelfPort self;
 
@@ -114,9 +112,6 @@ public final class MatchModeInstance implements AutoCloseable {
         for (MatchModeComponent component : components.inDeclarationOrder()) {
             bus.subscribe(MatchModeInstanceEvent.class, component::onEvent);
         }
-        // 授权表灌入:组件全部装配完成后,把 (id → 类) 对灌进实例袋——
-        // 命名空间断言的授权表由此而来,容器是唯一合法灌表方。
-        bindAuthorized(attrs);
     }
 
     // ── 二段生效(调用方:会话服务的切换执行段 B4;2.3 起跨包调用,提 public) ────
@@ -132,7 +127,7 @@ public final class MatchModeInstance implements AutoCloseable {
      * <p>★v3.2 触发点①(03-会话与模式切换 §3.2.1):成员成为参赛者之前逐人经
      * {@link JoinAdmission} 裁决——按组件声明序取第一个实现者,无实现者默认 ADMIT;
      * REJECT 的成员留在会话名册、不进本实例(成员仍有所属会话,只是本局不上场);
-     * ADMIT/SPECTATE 都成为参赛者,观战位的安置体验归组件层。
+     * ADMIT 成为参赛者;观战安置非引擎词汇,归组件层。
      */
     public void startAll() {
         JoinAdmission gate = joinGate();
@@ -146,23 +141,8 @@ public final class MatchModeInstance implements AutoCloseable {
             }
             participants.put(member.uuid(), new Participant(member.uuid()));   // 名册原地位移
         }
-        // 参赛者袋由名册在容器外创建,容器放置参赛者时统一补灌同一份授权表
-        // (组件最早的触达点是随后的 start,灌表先于一切组件可写路径)。
-        participants.values().forEach(participant -> bindAuthorized(participant.attrs()));
         components.inDeclarationOrder().forEach(MatchModeComponent::start);
         bus.publish(new MatchModeInstanceEvent.MatchModeInstanceStarted(clock.tick(), clock.occurredAtMillis()));
-    }
-
-    // ── 装配期灌表(命名空间授权表的唯一合法来源) ───────────────────
-
-    /**
-     * 遍历组件注册表既有读口(声明序快照),把 (组件 id → 组件类) 灌入指定袋的
-     * 授权表——实例袋与各参赛者袋共用本口,灌表逻辑不散落多处。
-     */
-    private void bindAuthorized(AttributeBag bag) {
-        for (MatchModeComponent component : components.inDeclarationOrder()) {
-            bag.bindComponent(component.id(), component.getClass());
-        }
     }
 
     // ── 切换配合口(2.3:会话服务切换阶段 B1/B4 与 join 触发点②的落点) ────────
@@ -202,7 +182,6 @@ public final class MatchModeInstance implements AutoCloseable {
             return existing;
         }
         Participant fresh = new Participant(uuid);
-        bindAuthorized(fresh.attrs());            // 与初始摆放同一授权表口径
         participants.put(uuid, fresh);
         bus.publish(new MatchModeInstanceEvent.ParticipantJoined(clock.tick(), clock.occurredAtMillis(), uuid));
         return fresh;
@@ -355,11 +334,6 @@ public final class MatchModeInstance implements AutoCloseable {
         }
 
         @Override
-        public AttributeBag attrs() {
-            return attrs;
-        }
-
-        @Override
         public HandoffView handoff() {
             return handoff;
         }
@@ -405,11 +379,6 @@ public final class MatchModeInstance implements AutoCloseable {
         }
 
         @Override
-        public <T> Optional<T> attr(AttributeBag.Key<T> key) {
-            return attrs.get(key);
-        }
-
-        @Override
         public SessionView session() {
             // ★v4-D5:实例侧只读会话视图(同一方法双满足 MatchModeInstancePort#session()
             // 与本只读读口;原裸 Session 返回在 2.6 收窄,阶段1 已知问题 4 消除)
@@ -419,7 +388,7 @@ public final class MatchModeInstance implements AutoCloseable {
 
     /**
      * 会话侧只读实例面(★v4-D5)的实现体:委托容器自身字段与组件注册表;
-     * 只读约定(仅 get/无写口)是架构纪律 + review 条款(14.29)。
+     * 只读约定(无写口)是架构纪律 + review 条款(14.29)。
      */
     private final class AccessView implements MatchModeInstanceAccess {
 
@@ -446,11 +415,6 @@ public final class MatchModeInstance implements AutoCloseable {
         @Override
         public MatchModeInfoPort modeInfo() {
             return svc.modeInfo();
-        }
-
-        @Override
-        public AttributeBag attrs() {
-            return attrs;
         }
 
         @Override

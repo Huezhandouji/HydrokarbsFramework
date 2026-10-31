@@ -42,8 +42,8 @@ import com.hydrokarbs.map.MapDefinition;
  *
  * <p><b>进程级单例纪律(§2.3)</b>:注册期 build 一次、注册表持有同一实例,
  * 切换期不再重建;build 后不可追加组件(A9)——改模式 = 注册一个新 id。
- * tag 匹配({@link #forMap})是唯一的模式↔地图耦合面:模式侧 mapTags ×
- * 地图侧 tags 求交集,注册表不认识任何具体 id 或标签词汇。
+ * tag 匹配({@link #matchesTags}/{@link #forMap})是唯一的模式↔地图耦合面:
+ * 模式侧空 mapTags 通配、否则求标签交集,注册表不认识任何具体 id 或标签词汇。
  *
  * <p>线程契约:启动期主线程同步装配;运行期注册/摘除(api 显式面)同样主线程
  * (api javadoc 主线程调用口径)——本类不做并发装配。
@@ -164,13 +164,27 @@ public final class MatchModeRegistry implements ModeLookup {
     }
 
     /**
-     * 该地图可用的模式:模式侧 mapTags × 地图侧 tags 交集非空即匹配
-     * (§12.2;空交集合法——地图适配的强制点在切换检查,不在注册表)。
+     * 模式↔地图匹配谓词(唯一判据,31 号决策 B):模式侧 mapTags 为空 = <b>通配</b>
+     * (接受任意地图,仍受会话地图池过滤);否则与地图侧标签
+     * ({@link MapDefinition#tags()} 唯一读口,缺省空集)交集非空才匹配。
+     * 地图侧 tags 为空<b>不构成通配</b>(非空 mapTags 的模式对空标签图恒不匹配,
+     * 避免反向放大匹配面)。{@link #forMap} 与切换准备 A3 的地图解析
+     * ({@code SessionServiceImpl#resolveMap})共用本谓词——判据单一落点;
+     * 注册表不认识任何具体 id 或标签词汇(§12.2),地图适配的强制点仍在切换检查
+     * (A3 后半),不在注册表。
+     */
+    public static boolean matchesTags(MatchMode mode, MapDefinition map) {
+        return mode.mapTags().isEmpty() || !Collections.disjoint(mode.mapTags(), map.tags());
+    }
+
+    /**
+     * 该地图可用的模式:{@link #matchesTags} 谓词过滤(模式侧空 mapTags = 通配,
+     * 31 号决策 B;空结果合法——地图适配的强制点在切换检查,不在注册表)。
      * TODO(15-适配 §15.2):{@code supported-modes} 显式收窄字段后续阶段评估。
      */
     public List<MatchMode> forMap(MapDefinition map) {
         return modes.values().stream()
-                .filter(mode -> !Collections.disjoint(mode.mapTags(), map.tags()))
+                .filter(mode -> matchesTags(mode, map))
                 .toList();
     }
 }

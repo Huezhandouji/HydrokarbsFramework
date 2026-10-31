@@ -56,6 +56,15 @@ import com.hydrokarbs.map.MapRegistry;
  * (响亮上抛);摘除回退编排自原 ServicesManager 监听器迁入本类(通道退场,
  * 编排逻辑一份不写两处)。★v1.7(25 号修正案):D4 能力标签两法与提供方标签
  * 归属簿记随标签机制全链退场删除——外部能力 = 会话组件桥接。
+ * ★v1.8(26 号修正案议题):地图声明按路径直交 + MapDefinition 瘦身——注册校验
+ * (世界目录存在性/路径派生 id 查重)随目录侧更新,快照转换经声明 {@code tags()}
+ * 读标签、重置策略取声明字段;方法面零变化,API_VERSION 6 → 7。
+ * ★v1.13(31 号修正案):缺省去向管线退场——快照转换删 defaultTransition 分量
+ * (MatchModeInfo 9 → 8),API_VERSION 7 → 8。摘除回退编排新默认:出厂空模式
+ * (经 SPI 注册,默认 {@code session.fallback-mode} = 其 id)不在任何
+ * {@code modeClaims}——第三方 {@code unregisterMode} 对它命中越权响亮拒分支,
+ * 出厂回退模式天然防摘;{@code initiateFallback} 被拒仅 WARN 不自旋(§14.17,
+ * 会话保留被摘模式旧实例继续跑)为既有 gap 观察项,31 号登记、不在本特性收紧。
  *
  * <p><b>依赖面</b>:engine 契约({@code SessionService}/{@code MatchModeRegistry})+
  * 地图读面({@code MapRegistry})+ 会话事件总线(汇聚面)+
@@ -225,7 +234,7 @@ public final class MiniGameApiImpl implements MiniGameApi {
     @Override
     public MapInfo registerMap(org.bukkit.plugin.Plugin provider, MapDefinition map) {
         Objects.requireNonNull(provider, "provider");
-        // 注册期校验(id 查重点名先到者/tags/模板目录存在性)在目录内响亮抛(20-D3)
+        // 注册期校验(世界目录存在性带绝对路径/id 查重点名先到者)在目录内响亮抛(20-D3)
         return toMapInfo(mapRegistry.register(provider, map));
     }
 
@@ -389,18 +398,18 @@ public final class MiniGameApiImpl implements MiniGameApi {
                 session.state().name());
     }
 
-    /** 模式 → 快照:displayName/description 经 MiniMessage 序列化(MINI 静态复用)。 */
+    /** 模式 → 快照:displayName/description 经 MiniMessage 序列化(MINI 静态复用;
+     *  ★v1.13 快照收缩:defaultTransition 分量随缺省去向管线退场删除,31 号)。 */
     private MatchModeInfo toModeInfo(MatchMode mode) {
         return new MatchModeInfo(mode.id(), MINI.serialize(mode.displayName()),
                 mode.description().stream().map(MINI::serialize).toList(), mode.icon(),
                 Set.copyOf(mode.mapTags()), mode.meta().recordsHistory(),
-                mode.meta().minParticipants(), mode.meta().maxParticipants(),
-                mode.meta().defaultTransition().name());
+                mode.meta().minParticipants(), mode.meta().maxParticipants());
     }
 
-    /** 地图 → 快照(分量与施工文档形状的出入见 MapInfo javadoc)。 */
+    /** 地图 → 快照(★v1.8 视图收缩:id 路径派生,tags 取声明 {@link MapDefinition#tags()} 唯一读口,reset 取声明字段)。 */
     private MapInfo toMapInfo(MapDefinition map) {
-        return new MapInfo(map.id(), map.displayName(), map.world(), Set.copyOf(map.tags()),
+        return new MapInfo(map.id(), map.tags(),
                 map.resetStrategy().name());
     }
 

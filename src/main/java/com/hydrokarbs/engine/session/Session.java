@@ -9,7 +9,6 @@ import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import com.hydrokarbs.engine.AttributeBag;
 import com.hydrokarbs.engine.component.SessionComponent;
 import com.hydrokarbs.engine.component.SessionComponentRegistry;
 import com.hydrokarbs.engine.event.SessionEvent;
@@ -24,7 +23,6 @@ import com.hydrokarbs.engine.port.WorldHandle;
  *
  * <p><b>字段表(§3.1 职责清单,逐行内建)</b>:{@code id}/{@code spec}/{@code policy}/
  * {@code roster}(名册)/{@code tracker}(连接追踪)/{@code events}(会话事件总线)/
- * {@code attrs}(namespace {@value #NAMESPACE},默认空、禁止塞模式语义数据)/
  * {@code state}(四态状态机)/{@code current}(0..1 当前实例;结束与切换中间态期间
  * 同样持有旧实例直到 close 完成)。空场策略住宿级组件
  * {@code component/session/EmptyArenaComponent}(§6.4);<b>连接追踪与宽限 sweep 仍内核</b>。
@@ -44,9 +42,6 @@ import com.hydrokarbs.engine.port.WorldHandle;
  */
 public class Session {
 
-    /** 会话属性袋的内核保留命名空间(组件不得占用,02-核心概念 §2.7 加严③)。 */
-    public static final String NAMESPACE = "session";
-
     /** {@link #lastSwitchTick} 的「从未切换」哨兵值(首次切换不受最短驻留限制,§3.5)。 */
     static final long NO_SWITCH_YET = -1L;
 
@@ -58,7 +53,6 @@ public class Session {
     private final SessionRoster roster;
     private final ConnectionTracker tracker;
     private final SessionEventBus events;
-    private final AttributeBag attrs;        // namespace "session";默认空,禁塞模式语义数据
     private final SessionComponentRegistry sessionComponents;   // ★v4:每会话一份(★27)
     private final SessionViewImpl view = new SessionViewImpl();
     private final SessionEventPortImpl eventsPort = new SessionEventPortImpl();
@@ -93,7 +87,6 @@ public class Session {
         this.roster = new SessionRoster();
         this.tracker = new ConnectionTracker(policy.disconnectGraceMillis());
         this.events = new SessionEventBus();
-        this.attrs = new AttributeBag();
         this.sessionComponents = new SessionComponentRegistry(id, events);
     }
 
@@ -121,11 +114,6 @@ public class Session {
 
     public SessionEventBus events() {
         return events;
-    }
-
-    /** 会话属性袋(namespace "session" 内核保留;默认空)。 */
-    public AttributeBag attrs() {
-        return attrs;
     }
 
     /**
@@ -386,7 +374,7 @@ public class Session {
 
     // ── ★v4 只读视图的实现体(跨级只读,D5;只读是架构纪律 + review 条款) ────
 
-    /** 实例侧只读会话视图:委托名册/属性袋/会话组件注册表(现取,不缓存)。 */
+    /** 实例侧只读会话视图:委托名册/会话组件注册表(现取,不缓存)。 */
     private final class SessionViewImpl implements SessionView {
 
         @Override
@@ -397,11 +385,6 @@ public class Session {
         @Override
         public List<SessionMember> members() {
             return roster.all();
-        }
-
-        @Override
-        public AttributeBag attrs() {
-            return attrs;
         }
 
         @Override

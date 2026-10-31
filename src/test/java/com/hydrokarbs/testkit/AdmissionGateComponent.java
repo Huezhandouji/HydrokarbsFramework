@@ -12,7 +12,7 @@ import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 
 /**
  * 入场裁决假组件(★v3.2 端口的测试件):实现 {@link JoinAdmission} 的实例组件,
- * 裁决由注入的函数产出(按上下文/玩家返回 ADMIT/SPECTATE/REJECT)。
+ * 裁决由注入的函数产出(按上下文/玩家返回 ADMIT/REJECT)。
  * 用于验证两个触发点(初始摆放/运行中加入)的裁决链路。
  */
 public final class AdmissionGateComponent extends MatchModeComponent implements JoinAdmission {

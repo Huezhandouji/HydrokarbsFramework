@@ -13,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.logging.Handler;
@@ -33,15 +32,17 @@ import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.engine.port.MatchModeInstanceServices;
 import com.hydrokarbs.engine.session.MatchModeConfig;
 import com.hydrokarbs.map.MapDefinition;
+import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.TestComponent;
 
 /**
  * 模式注册表注册闸(施工计划 2.2「测试与验收」;§12.2/§2.6):
  * 假工厂经 register 进目录并可 require;同 id 重复 → 响亮 ISE;
- * 依赖校验失败 → 跳过 + SEVERE、其余照常;forMap 按 tag 交集;
- * 未知 id require 抛。discover() 的 ServiceLoader 半边以
- * 「SPI 清单存在且内容为空」代测(离线零 Bukkit);ServicesManager 半边
- * 注释预留 7.2(登记施工偏差)。离线:零 Bukkit import/静态调用。
+ * 依赖校验失败 → 跳过 + SEVERE、其余照常;forMap 按 matchesTags 谓词
+ * (模式侧空 mapTags = 通配,31 号决策 B);未知 id require 抛。
+ * discover() 的 ServiceLoader 半边以「恰发现出厂空模式工厂」实代测
+ * (31 号:SPI 清单首行 = EmptyMatchModeFactory,离线零 Bukkit)。
+ * 离线:零 Bukkit import/静态调用。
  */
 class MatchModeRegistryTest {
 
@@ -93,8 +94,7 @@ class MatchModeRegistryTest {
             public MatchMode build(MatchModeConfig cfg) {
                 MatchMode.Builder builder = new MatchMode.Builder(id)
                         .mapTags(mapTags)
-                        .meta(new MatchModeMeta(false, 0, 100,
-                                MatchModeMeta.DefaultTransition.STAY));
+                        .meta(new MatchModeMeta(false, 0, 100));
                 int index = 1;
                 for (MatchModeComponent.Specification<?> spec : specs) {
                     builder.addComponent("c" + index++, spec);
@@ -102,6 +102,11 @@ class MatchModeRegistryTest {
                 return builder.build();
             }
         };
+    }
+
+    /** 空 mapTags 的假工厂(通配断言用,31 号决策 B)。 */
+    private static MatchModeProvider taglessProvider(String id) {
+        return provider(id, Set.of());
     }
 
     /** 无人提供的组件类型(制造「依赖校验失败」的坏模板)。 */
@@ -152,7 +157,7 @@ class MatchModeRegistryTest {
     @Test
     void dependencyExceptionTypeIsComponentDependencyException() {
         MatchMode bad = new MatchMode.Builder("probe")
-                .meta(new MatchModeMeta(false, 0, 100, MatchModeMeta.DefaultTransition.STAY))
+                .meta(new MatchModeMeta(false, 0, 100))
                 .addComponent("needs", TestComponent.requiring(hookLog, Unresolved.class))
                 .build();
         assertThrows(ComponentDependencyException.class, bad::verifyDependencies);
@@ -170,13 +175,25 @@ class MatchModeRegistryTest {
         registry.register(provider("m-std", Set.of("standard")));
         registry.register(provider("m-wide", Set.of("standard", "large")));
         registry.register(provider("m-coop", Set.of("cooperative")));
+        registry.register(taglessProvider("m-any"));      // 空 mapTags = 通配(31 号决策 B)
 
-        MapDefinition standardMap = new MapDefinition("map1", "w", Set.of("standard", "arena"), Map.of());
+        // 声明侧标签走 TAGS 词料键(★v1.8);forMap 不触文件系统,路径占位即可
+        MapDefinition standardMap = MapTestKit.declaration(Path.of("map1"),
+                Set.of("standard", "arena"));
         List<String> matched = registry.forMap(standardMap).stream().map(MatchMode::id).toList();
-        assertEquals(List.of("m-std", "m-wide"), matched);
+        assertEquals(List.of("m-std", "m-wide", "m-any"), matched,
+                "交集非空匹配 + 空 mapTags 模式通配任意图");
 
-        MapDefinition emptyTags = new MapDefinition("map2", "w", Set.of(), Map.of());
-        assertTrue(registry.forMap(emptyTags).isEmpty(), "空交集 = 不匹配(合法,不抛)");
+        // 通配不对称:模式侧空 = 匹配任意图(含空标签图);地图侧空不构成通配
+        // ——非空 mapTags 模式对空标签图恒不匹配(31 号决策 B)
+        MapDefinition emptyTags = MapTestKit.declaration(Path.of("map2"), Set.of());
+        List<String> matchedEmpty = registry.forMap(emptyTags).stream().map(MatchMode::id).toList();
+        assertEquals(List.of("m-any"), matchedEmpty,
+                "空标签图只被通配(空 mapTags)模式匹配,合法不抛");
+        assertTrue(MatchModeRegistry.matchesTags(registry.require("m-any"), emptyTags),
+                "matchesTags 谓词直测:模式侧空 mapTags 对空标签图 = true");
+        assertFalse(MatchModeRegistry.matchesTags(registry.require("m-std"), emptyTags),
+                "matchesTags 谓词直测:地图侧空 tags 不构成通配");
     }
 
     @Test
@@ -186,20 +203,24 @@ class MatchModeRegistryTest {
     }
 
     @Test
-    void discoverOnEmptySpiKeepsRegistryEmptyAndLogsInit() {
-        registry.discover();   // ServiceLoader 半边:SPI 清单为空 → 无工厂可发现(离线可跑)
-        assertTrue(registry.all().isEmpty());
+    void discoverFindsExactlyTheFactoryShippedMode() {
+        // 31 号:SPI 清单首行 = 出厂空模式工厂——discover 恰发现它并过注册闸
+        //(原「空清单零发现」前提被出厂模式打破,重写并随 31 号登记修测理由)
+        registry.discover();
+        assertEquals(1, registry.all().size(), "测试类路径恰发现 1 个出厂模式");
+        assertEquals("limbo", registry.require("limbo").id());
+        assertTrue(registry.require("limbo").components().isEmpty(), "出厂空模式零组件");
         assertNotNull(logs.stream()
                 .filter(r -> r.getLevel() == Level.INFO)
                 .map(LogRecord::getMessage)
                 .filter(m -> String.valueOf(m).contains("模式注册表初始化完成"))
                 .findFirst()
-                .orElse(null), "注册表初始化行必须出现(0 个模式属正常)");
+                .orElse(null), "注册表初始化行必须出现");
     }
 
-    /** discover() 的 ServiceLoader 半边代测:SPI 文件存在且内容为空(只注释)。 */
+    /** discover() 的 ServiceLoader 半边实代测(31 号重写):SPI 清单恰一行 = 出厂工厂 FQCN。 */
     @Test
-    void spiManifestExistsAndIsEmpty() throws IOException {
+    void spiManifestListsExactlyTheFactoryShippedProvider() throws IOException {
         Path spi = Path.of("src/main/resources/META-INF/services",
                 "com.hydrokarbs.engine.mode.MatchModeProvider");
         assertTrue(Files.isRegularFile(spi), "SPI 资源文件必须存在(§12.1/§13.1-#7): " + spi);
@@ -207,7 +228,7 @@ class MatchModeRegistryTest {
                 .map(String::trim)
                 .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                 .toList();
-        assertTrue(entries.isEmpty(),
-                "框架基线 SPI 清单应为空(玩法线施工阶段追加工厂行);实为: " + entries);
+        assertEquals(List.of("com.hydrokarbs.mode.empty.EmptyMatchModeFactory"), entries,
+                "SPI 清单恰一行 = 出厂空模式工厂(31 号;原「清单为空」前提被出厂模式打破)");
     }
 }

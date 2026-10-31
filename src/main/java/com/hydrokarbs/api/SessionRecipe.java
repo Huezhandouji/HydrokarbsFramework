@@ -20,8 +20,10 @@ import com.hydrokarbs.engine.component.SessionComponent;
  * <p><b>字段口径</b>:
  * <ul>
  *   <li>{@code initialModeId}——首切换目标(必填,未注册响亮抛,引擎 require
- *       既有口径,§12.1);{@code initialMapId}——钉图(空白 = 未指定,空池自动挑图);
- *       非空白时置会话地图池<b>首位</b>(首切换自动挑图按池序,§3.2-A3);</li>
+ *       既有口径,§12.1);{@code initialMapId}——钉图(空白 = 未指定,空池自动挑图;
+ *       非空白时置会话地图池<b>首位</b>,首切换自动挑图按池序,§3.2-A3);
+ *       ★v1.8 起钉图键 = 注册声明的路径派生 id(声明目录名,MapDefinition#id)——
+ *       与目录查重/副本命名同源;</li>
  *   <li>{@code mapPool}——会话地图池(整场约束,与钉图去重合并);</li>
  *   <li>{@code extraComponents}——单次贡献的会话组件描述符({@code Specification} 在
  *       07 §7.2 白名单;组件 id 由供给面类型名推导,与引擎装配路径同源)。</li>

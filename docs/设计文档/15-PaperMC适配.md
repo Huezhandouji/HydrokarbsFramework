@@ -1,8 +1,8 @@
 ## 15. PaperMC 1.21.11 适配要点(必填章节)
 
-> HydroKarbs MiniGame Framework · v1.6(现行;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册通道收敛;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
+> HydroKarbs MiniGame Framework · v1.13(现行,2026-10-30 修正案 31 号:会话模式实例不变式与缺省切换管线退场;v1.12 于 2026-10-29 JoinDecision 二值化,30 号——本篇零改动;v1.11 于 2026-10-28 修正案 29 号:属性袋纯容器回归与声明词料三件退场;v1.10 于 2026-10-28 旧属性袋退场与 MapDefinition 三字段定案,28 号;v1.9 于 2026-10-28 切换与解散的世界清场,27 号;v1.8 于 2026-10-28 修正案 26 号;v1.7 于 2026-10-28 能力标签机制退场,25 号;v1.6 于 2026-10-27 显式注册收敛,24 号;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册通道收敛;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
 >
-> 文档版本:v1.7(2026-10-27,修正案 25 号:**能力标签机制退场**——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.7 短注(框架侧标签机制已全链退场,该行为宿主扩展线历史示例,25 号);其余零命中零改动;v1.6(2026-10-27,修正案 24 号:显式注册收敛——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.6 澄清注(SHDF 扩展线实例,监听角色插件服务——不随 v1.6 退役;框架侧已无 ServiceRegisterEvent 监听器);其余零命中零改动,24 号);v1.4(2026-10-27,地图注册通道收敛——§15.2 文件分工注与树 maps 声明行加「地图仅注册通道」退场注(模板目录约定不变)、示例句注、热重载 maps 级随文件半边废止、★v1.2 注就地修订、解析实现要点代码块改现行 YamlCodec(readMap 已删),22 号;v1.3 于 2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
+> 文档版本:v1.13(2026-10-30,修正案 31 号:**会话模式实例不变式与缺省切换管线退场**——§15.2 config 顶层结构 `config-version` 3→**4**、`session.fallback-mode` 默认改 **"limbo"**(出厂空模式兜底)并改写注释、L0 读键口径注补「代码级读默认维持空串,单一默认源 = 默认资源」、目录树 `modes/` 增 limbo.yml 行(随默认资源发布,`saveDefaults` 逐资源建父目录);v1.8(2026-10-28,修正案 26 号:**地图声明按路径直交**——§15.2 配置分工注与目录树 `maps/` 行加 ★v1.8 退场注、reload 分级注与模板落盘口径注加 ★v1.8 就地注:「模板寄居 `maps/templates/`」约定退场,世界目录 = 声明自带 `worldDirectoryPath`(构造期规范化绝对路径),注册前路径已就位(先落盘世界目录 → 构造 MapDefinition → 注册,14.39 新口径);注册式地图不经 reload 口径复核不变(所有权在提供方插件,20-D5);v1.7(2026-10-28,修正案 25 号:**能力标签机制退场**——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.7 短注(框架侧标签机制已全链退场,该行为宿主扩展线历史示例,25 号);其余零命中零改动;v1.6(2026-10-27,修正案 24 号:显式注册收敛——§15.1 事件优先级表 `CapabilityListener` 行加 ★v1.6 澄清注(SHDF 扩展线实例,监听角色插件服务——不随 v1.6 退役;框架侧已无 ServiceRegisterEvent 监听器);其余零命中零改动,24 号);v1.4(2026-10-27,地图注册通道收敛——§15.2 文件分工注与树 maps 声明行加「地图仅注册通道」退场注(模板目录约定不变)、示例句注、热重载 maps 级随文件半边废止、★v1.2 注就地修订、解析实现要点代码块改现行 YamlCodec(readMap 已删),22 号;v1.3 于 2026-10-25,框架基础设施瘦身与配置中立化——§15.2 config 顶层结构 v1.3 版(database/display/shutdown-flush 删除、initial/fallback 默认空、arenas 注释化、config-version 3)、文件分工树 secrets/lang 注归宿主、§15.3 流水线②与范例注迁宿主,21-D1~D3;**同日 D5 增补:§15.2 session: 块收缩为三键(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除,21-D5)、L0 兜底注同步**;v1.2 于 2026-10-23 地图注册通道——§15.2 reload 分级注与模板落盘口径;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充——§15.2 形态 B 配置分工注与 `performance.component-budget-ms` 新键;v4.1 于 2026-10-21 进程级服务层与 ServiceRegistry;会话级组件层——两级挂载)。
 
 ### 15.1 事件监听:Paper Event API 使用规范
 
@@ -35,19 +35,23 @@
 
 #### 文件分工(`plugins/HydroKarbs/`)
 
-> ★v1.1 配置分工注(19-D1;★v1.4 就地修订,22 号):**形态 B(双 jar)下玩法配置随玩法 jar**——`modes/*.yml`(玩法模式参数)与玩法 `maps/templates/` 归玩法插件资源(各自 `maps/` 根,"模板随地图包分发";**地图仅注册通道**——框架不扫不读 `maps/*.yml`,玩法 jar 若自带此类文件,纯为玩法自读的声明数据,发现机制 = §13.11 注册);框架 `config.yml` 管会话节律(下节;★v1.3-D5:拓扑与会话创建移宿主,框架不再持有 topology/arenas 键),通用图模板随框架 jar。形态 A(单 jar)下两者同居 `plugins/HydroKarbs/`,分工口径不变。
+> ★v1.1 配置分工注(19-D1;★v1.4 就地修订,22 号;★v1.8 就地注,26 号):**形态 B(双 jar)下玩法配置随玩法 jar**——`modes/*.yml`(玩法模式参数)与玩法地图的世界目录资产归玩法插件资源(各自 `maps/` 根,"模板随地图包分发";**地图仅注册通道**——框架不扫不读 `maps/*.yml`,玩法 jar 若自带此类文件,纯为玩法自读的声明数据,发现机制 = §13.11 注册);★v1.8:「模板寄居框架数据目录 `maps/templates/`」约定退场——世界目录 = 声明自带 `worldDirectoryPath`(构造期规范化绝对路径),插件 jar 内资产由提供方自行解包到目标位置、**注册前路径已就位**(先落盘 → 构造 MapDefinition → registerMap,14.39);框架 `config.yml` 管会话节律(下节;★v1.3-D5:拓扑与会话创建移宿主,框架不再持有 topology/arenas 键);★v1.8:模板根退场后框架不再约定任何模板寄居位置(世界目录归各声明自带路径)。形态 A(单 jar)下两者同居 `plugins/HydroKarbs/`,分工口径不变。
 
 ```
 plugins/HydroKarbs/
 ├── config.yml              # 引擎/会话/基础设施,全局单例
 ├── modes/
+│   ├── limbo.yml           # ★v1.13/31 号:出厂空模式 limbo 的配置落点(注释-only,装载为空 config)——
+│   │                       #   随默认资源发布(saveDefaults 逐资源建父目录、幂等不覆盖);作用 = 消除注册期
+│   │                       #   与每次切到 limbo 的「模式配置缺失」告警,本模式不读任何配置项
 │   ├── lobby.yml           # ★v2:大厅也是 modes/ 下一个文件(倒计时/投票池/闲玩开关)(SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
 │   ├── bomb_defusal.yml    # (SHDF 玩法线,见 Shdf具体玩法设计案/05)
 │   ├── team_deathmatch.yml # (SHDF 玩法线)
 │   └── boss_raid.yml       # (SHDF 玩法线)
 ├── maps/
-│   └── templates/          # ★v2:世界模板母本(mapId 目录;★v1.4:约定 maps/templates/<mapId>/ 不变,
-│                           #   注册期校验根——注册声明前先解包落盘,14.39)
+│   └── (★v1.8:目录树原 `templates/` 行随模板根约定退场(26 号)——世界目录
+│           = 声明自带 `worldDirectoryPath` 直指任意绝对/相对路径,不再约定
+│           寄居框架数据目录;注册期校验直验该路径存在且为目录,14.39)
 │   (★v1.4:原 lobby_main.yml / crossfire.yml「每张地图一个文件」声明行已删——文件式装载退场
 │    (22 号),地图仅经注册通道进目录;示例资产见 Shdf具体玩法设计案/04、05)
 ├── (★v1.3:secrets.properties 已迁宿主——框架基线无 DB 密码;宿主自建持久化时密码文件
@@ -55,11 +59,12 @@ plugins/HydroKarbs/
 └── (★v1.3:lang/ 文案目录归宿主插件(框架消息文案最小化,随宿主语言包),21-D2/D3 口径)
 ```
 
-#### `config.yml` 顶层结构(★v1.3 版:`config-version` 2→3——`database:`/`display:` 块与 `engine.shutdown-flush-budget-seconds` 删除、`session:` 块经 21-D3 中立化后再经 **21-D5 收缩为三键**(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除)、`fallback-mode` 默认改空;21-D1~D3/D5)
+#### `config.yml` 顶层结构(★v1.3 版:`config-version` 2→3——`database:`/`display:` 块与 `engine.shutdown-flush-budget-seconds` 删除、`session:` 块经 21-D3 中立化后再经 **21-D5 收缩为三键**(topology/arenas/initial-mode/dissolve-after-empty-seconds 随启动建会话特性删除)、`fallback-mode` 默认改空;21-D1~D3/D5;**★v1.13/31 号:`config-version` 3→4、`fallback-mode` 默认改 `"limbo"`(出厂空模式兜底)**)
 
 ```yaml
-config-version: 3            # ★ 每个配置文件都要有,用于迁移。★v1.3:2→3(旧 database:/display: 块
-                              #   迁移时被忽略并提示归属变更;见 21 §2 配置 diff)
+config-version: 4            # ★ 每个配置文件都要有,用于迁移。★v1.3:2→3(旧 database:/display: 块
+                              #   迁移时被忽略并提示归属变更;见 21 §2 配置 diff)。★v1.13/31 号:3→4
+                              #   (纯迁移标记:session.fallback-mode 默认 "" → "limbo",出厂空模式兜底)
 
 engine:
   tick-period: 1             # EngineTicker 周期(tick);1 = 每 tick
@@ -76,9 +81,12 @@ session:                     # ★v1.3-D5:恰剩三键——会话由宿主经 S
                              #   拓扑 = 宿主调几次 create;开局模式 = 宿主填 SessionSpec.initialModeId;
                              #   空场组件时长 = 宿主组装 SessionSpec.sessionComponents 时直接喂
                              #   EmptyArenaComponent.Spec.after(键与 L0 装配分支一并废止,21-D5)
-  fallback-mode: ""          # ★ 切换失败的回退模式——配置项,引擎不认识任何具体 id。★v1.3:默认空;
-                             #   回退去向 = 配置指向的任意已注册模式,为空或未注册 → 回退链跳过一级、
-                             #   直接二级 dissolve(21-D3-②;内核节律,与谁建会话无关,D5)
+  fallback-mode: "limbo"     # ★ 切换回退模式 id——配置项,引擎不认识任何具体 id。★v1.13/31 号:默认 =
+                             #   框架出厂空模式 limbo(占位等待,零组件,经框架 SPI 注册,任何有地图的部署
+                             #   下必可切);可改填你自己已注册的模式 id——该模式不应依赖「无意图结束」自持
+                             #   (回退环受下方 min-dwell-ticks 节流,每窗口至多一轮);空串或未注册 =
+                             #   无效回退,回退时 SEVERE 并强制解散会话(★v1.3 旧口径「默认空 → 跳过一级
+                             #   直接二级 dissolve」自本版废止,21-D3-②)
   min-dwell-ticks: 100       # 最短驻留(防切换风暴;内核节律,21-D5 保留)
   disconnect-grace-seconds: 60
 
@@ -95,9 +103,9 @@ performance:
                              #   ★v1.3 保留(21-D4-①):信任边界观测属框架机制、非玩法——display 块删除不影响本键
 ```
 
-> **★v1.3 L0 装配读键口径**(21-D3-②/D5):切换回退去向 `cfg.get("session.fallback-mode", "")`——框架源码与缺省配置均不再出现 `"lobby"` 字样;**原 `cfg.get("session.initial-mode", …)` 行已随 21-D5 整体废止**(拓扑装配删除,初始模式由宿主填 `SessionSpec.initialModeId`;D3-① 的启动装配空值语义不再有框架侧触发点)。
+> **★v1.3 L0 装配读键口径**(21-D3-②/D5):切换回退去向 `cfg.get("session.fallback-mode", "")`——框架源码与缺省配置均不再出现 `"lobby"` 字样;**原 `cfg.get("session.initial-mode", …)` 行已随 21-D5 整体废止**(拓扑装配删除,初始模式由宿主填 `SessionSpec.initialModeId`;D3-① 的启动装配空值语义不再有框架侧触发点)。**★v1.13/31 号注:代码级读默认维持空串**(`HydrokarbsAssembly` 会话 Builder 与 api 惰性读口两处)——**单一默认源 = 默认资源**(资源值 `"limbo"`);显式空串/缺键按「无效回退」走新规(SEVERE + 强制解散),源码零字面量口径不变(`limbo` 住 `mode/empty` 与默认资源,禁词表含之)。
 
-> v1 的 `lobby: { world: ..., spawn: ... }` 块**已删除**——大厅的世界与出生点就是 `maps/lobby_main.yml` 的 `world` 与 `spawns.lobby`,与其他地图同源。v1 的 `match:` 块并入 `session:`。
+> v1 的 `lobby: { world: ..., spawn: ... }` 块**已删除**(v1 的声明拆进文件式地图;★v1.4:文件式装载已退场,★v1.8:模板根约定退场——现口径:大厅的世界与出生点同一切地图一样,由宿主在世界目录资产 + 代码声明侧自理,坐标不住框架配置)。v1 的 `match:` 块并入 `session:`。
 >
 > ★v4.1:进程级服务(§3.9)不新增任何配置键——第一版服务装配硬编码于 L0(`HydroKarbsAssembly`,§12.1)。
 >
@@ -145,7 +153,7 @@ public final class YamlCodec {
    (★v1.4:前半句「单张地图失败只跳过该图」随文件式装载退场失效——地图不进配置装载,仅注册通道;配置/模式文件解析失败经 `ConfigException` 响亮口径,22 号)
 
 **热重载**:`/sm reload` 分级:`config`(引擎/会话;新会话生效)/ `modes`(含 lobby.yml;进行中实例不受影响)。虚拟线程解析(仅 config/modes)→ 回主线程后调用 `loadAll` 换引用。(★v1.4:原 `maps` 级 reload 随文件式装载退场——地图仅注册通道,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除;20-D5 口径,22 号)。(注:modes 一级涉及的 lobby.yml 属 SHDF 玩法线,见 Shdf具体玩法设计案/04、05)
-> ★v1.2 注(20-D5;★v1.4 就地修订,22 号):~~`maps` 级 reload **只触碰文件式地图**~~(**★v1.4:`maps` 级 reload 随文件式装载退场,该分级随之取消——地图仅注册通道**);注册式地图(经 `MiniGameApi#registerMap`)向来不经 reload——声明所有权在插件,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除)。模板落盘口径(20-D2)**不变**:注册式地图的模板解析路径仍为框架数据目录 `maps/templates/<mapId>/`,宿主注册前自行解包(`saveResource`)落盘,注册期校验目录存在(14.39)。
+> ★v1.2 注(20-D5;★v1.4 就地修订,22 号;★v1.8 就地注,26 号):~~`maps` 级 reload **只触碰文件式地图**~~(**★v1.4:`maps` 级 reload 随文件式装载退场,该分级随之取消——地图仅注册通道**);注册式地图(经 `MiniGameApi#registerMap`)向来不经 reload——声明所有权在插件,宿主"reload" = `unregisterMap` + `registerMap`(或整插件重载,走 PluginDisableEvent 摘除)。**模板落盘口径 ★v1.8 改写(26 号)**:~~模板解析路径仍为框架数据目录 `maps/templates/<mapId>/`~~——该约定退场,世界目录 = 声明自带 `worldDirectoryPath`(构造期规范化为绝对路径),提供方**注册前自行落盘就位**(先落盘世界目录 → 构造 MapDefinition → registerMap;注册期校验直验该路径存在且为目录,缺失/非目录响亮抛带完整绝对路径,14.39 新口径)。注册式地图不经 reload 口径复核不变。
 > ★v4 未决(变更指示 §11-Q4):**会话组件热替换/热重载语义**——第一版**不支持**:本节三级 reload 不覆盖会话组件表(装配来源是 L0 在 `SessionService.create` 内按配置构建的 `SessionSpec.sessionComponents`,§3.8/§6.4);该未决项登记于此、待裁决,不在本版静默决定。
 >
 > ★v4.1 未决(修正案 §12-Q11):**服务热替换/热重载语义**——第一版**不支持**:进程生命周期 = 插件生命周期,本节三级 reload 不触及服务层。该未决项登记于此、待裁决,不在本版静默决定。

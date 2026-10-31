@@ -39,7 +39,7 @@ public final class MatchMode {
     private final List<Component> description;
     private final Material icon;                 // 入口牌子/GUI 用;未设置时为 null(消费方自理)
     private final Set<String> mapTags;           // 支持哪些地图(按 MapDefinition.tags 匹配)
-    private final MatchModeMeta meta;            // 是否记史/人数窗/缺省去向(入场裁决已归组件;★v1.7 起无能力标签)
+    private final MatchModeMeta meta;            // 是否记史/人数窗(入场裁决已归组件;★v1.7 起无能力标签;★v1.13 起无缺省去向分量)
 
     /** 唯一有序组件描述符表:LinkedHashMap,声明序 = 装配调用序 = 生命周期/事件派发序。 */
     private final Map<String, ComponentEntry> components;
@@ -190,6 +190,8 @@ public final class MatchMode {
             return this;
         }
 
+        /** 支持哪些地图(按 MapDefinition.tags 匹配);空集 = 通配任意地图(31 号决策 B,
+         *  仍受会话地图池过滤;地图侧 tags 为空不构成通配)。 */
         public Builder mapTags(Set<String> tags) {
             this.mapTags = Set.copyOf(java.util.Objects.requireNonNull(tags, "mapTags"));
             return this;

@@ -1,6 +1,6 @@
 # HydroKarbs MiniGame Framework 施工计划总览(框架线)
 
-> HydroKarbs MiniGame Framework · v1.3(现行;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
+> HydroKarbs MiniGame Framework · v1.10(现行,2026-10-28 修正案 28 号:属性袋退场与 MapDefinition 三字段定案;v1.9 于 2026-10-28 修正案 27 号:切换与解散的世界清场,内核接缝 + L0 注入函数,WorldPort/公共面零改动;v1.8 于 2026-10-28 修正案 26 号:地图声明按路径直交 + MapDefinition 瘦身,方法面零变化;v1.7 于 2026-10-27 能力标签机制退场,25 号;v1.6 于 2026-10-27 显式注册收敛,24 号;v1.5 于 2026-10-27 REUSE_DIRTY 副本随会话解散销毁,23 号;v1.4 于 2026-10-27 API 面收敛与地图注册单通道,22 号;v1.3 于 2026-10-25 框架基础设施瘦身与配置中立化,21 号;v1.2 于 2026-10-23 地图注册通道;v1.1 于 2026-10-23 框架独立插件化拆分与 API 面扩充;v1.0 于 2026-10-22 自 SHDFMatch 设计案 v4.1 剥离玩法重构;玩法实现见 Shdf具体玩法设计案/)
 
 > 本文件夹是框架设计案(v1.1)的**框架线施工序列化**:框架线共 8 个阶段、23 个子阶段,每个子阶段给出可执行的施工指导(步骤、文件、陷阱、验收、DoD)。
 > **双线口径**:玩法实现子阶段(阶段3 全部、2.5、5.1/5.2、阶段6 全部、7.3)属**玩法线**,整体迁入 `../Shdf具体玩法设计案/施工计划/`(清单见其 `完成清单-玩法线.md`);本计划仅保留行级去向标注与框架侧承接点。
@@ -14,6 +14,8 @@
 > ★v1.5(REUSE_DIRTY 副本随会话解散销毁,2026-10-27):世界副本的**复用窗口 = 会话生命周期**——会话解散经 `WorldPort` 新增第三方法 `discardSession(SessionId)` 销毁该会话名下全部副本(三类覆盖:切换离开保留的目录/在用句柄/迟到 in-flight;★58)——受影响子阶段与交付顺序约束见本文 **§13**;变更全文见 `../23-v1.5修正案-REUSE_DIRTY副本随会话解散销毁.md`(变更指示,现行,非历史存档),决策记录见 `../docs/adr/0011-reuse-dirty-copy-dispose-on-dissolve.md`。
 > ★v1.6(显式注册收敛,2026-10-27):模式与会话组件的注册从 ServicesManager 提供方通道(`ServiceRegisterEvent`/`ServiceUnregisterEvent` 动态收录/摘除)改为 `MiniGameApi` **显式注册四法**(`registerMode(Plugin, MatchModeProvider)` 响亮闸 / `unregisterMode(Plugin, modeId)` 只摘自己的 id + 摘除回退编排:fallback-mode force 切换或 FALLBACK_DISSOLVE / `registerSessionComponents(Plugin, specs)` 响亮抛干跑校验 / `unregisterSessionComponents(Plugin)` 幂等;API_VERSION 4→5,冻结面 15→19 方法)——`SessionComponentProvider` SPI 与 `ProviderServiceListener` 删除,`MatchModeRegistry#discover()` 只剩 ServiceLoader 本 jar 半边,注册时序反转 = 第三方必须 `depend` 框架、`load(MiniGameApi)` 后显式登记(「先启补收录」退役),disable 兜底四族(ProviderUnloadListener;★59)——受影响子阶段与交付顺序约束见本文 **§14**;变更全文见 `../24-v1.6修正案-API面显式注册模式与会话组件.md`(变更指示,现行,非历史存档),决策记录见 `../docs/adr/0012-explicit-api-registration.md`。
 > ★v1.7(能力标签机制全链退场,2026-10-27;用户裁决:字符串契约不严谨):字符串能力标签平行层整体退役——`CapabilityRegistry`、切换 A2 能力校验、`MiniGameApi#registerCapability`/`capabilities` 两法(API_VERSION 5→6,冻结面 19→17 方法)、`MatchModeMeta.requiredCapabilities`(Builder 声明语言变更)、`MatchModeInfo` 快照分量、`SessionComponent.Specification#capabilities`、`ServiceSpec.capabilities` 与 seal/shutdown 两端注册、`ProviderUnloadListener` 能力块(兜底四族收敛三族)、`capabilityClaims` 簿记;**外部能力新形态 = 会话组件桥接**:提供方(或宿主自持防腐层)经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接组件,消费方组件 `requires`/`requiresOptional` 声明依赖,装配期响亮、运行期 quarantine;软依赖由 `requiresOptional` 独自承载(机制已在框架内,非新增;★21/★60);**语义位移**:能力校验从「每次切换重查(进程级)」改为「创建时绑定 + 运行期降级/quarantine」——provider 摘除只影响后续会话,存量会话由桥接组件自身降级承接(D14 既有口径);冻结测试合法更新(FROZEN 17 行、BASELINE 重录、API_VERSION=6);**★32 废止、新增 ★60**(§4)——受影响子阶段与交付顺序约束见本文 **§15**;变更全文见 `../25 号修正案`(v1.7 能力标签机制退场;正文落盘前以本横幅与 §15 为准)。
+> ★v1.8(地图声明按路径直交 + MapDefinition 瘦身,2026-10-28;修正案 26 号,**方法面零变化**):「模板寄居框架数据目录 `maps/templates/`」约定退场——`MapDefinition` 自带 `worldDirectoryPath`(构造期规范化为绝对路径入库,缺目录名 id 无从派生响亮抛),`MapRegistry` 删 `templatesRoot` 构造依赖、注册校验直验声明路径存在且为目录(缺失/非目录响亮抛带完整绝对路径,14.39 读作「注册前路径已就位」),`HydrokarbsAssembly` 撤模板根派生;`MapDefinition` 瘦身为两分量(id/displayName/tags/bounds/spawns/regions/interactPoints/metadata/resetStrategy 全删;`map/` 包 RegionSet/NamedRegion/SpawnPoint/InteractPoint 出册,Bounds 从未落码);tags 与副本处置策略走 `MetaAttributes` 约定键 `map.tags`/`map.reset-strategy`(缺省 REUSE_DIRTY 语义不变;三口径——专用写口/`set` 仅组件断言不放开、注册期冻结与注册方脱钩、声明级生命周期);id = 声明目录名路径派生,目录查重/副本命名/`SessionRecipe` 钉图键统一;`api/view/MapInfo` 收缩为 `(id, tags, resetStrategy)`;`AttributeBag` 增 `declaration`/`copyOf`;`WorldPortImpl`/`PlaceholderWorldPort` 以声明路径为基准(行为语义零改动);API_VERSION 6→7、FROZEN 17 行不动、BASELINE 随声明形状合法重录;**新增 ★61~★64**(§4)——受影响子阶段与交付顺序约束见本文 **§16**;变更全文见 `../26 号修正案`(正文落盘前以本横幅与 §16 为准)。
+> ★v1.9(切换与解散的世界清场,2026-10-28;修正案 27 号,**内核接缝 + L0 注入函数,非破坏性**):消除「世界内有玩家 → `Bukkit.unloadWorld` 返回 false → SEVERE + 保留目录」路径(23 号销毁闭环的伴生收口)——**切换** = 同世界复用(判据 = `org.bukkit.World` 引用相等,首切空值分支跳过)新步 B3.5 清场先行于 B4 组件摆放(同图重开「原地起步 → 出生点起步」为冻结语义变更,依赖跨局位置保留的组件自读 Handoff 自行传送)、异图切换 B5 finally 殿后(`previousWorld` 非 null 守卫内、完成事件之后、release 之前);**解散** = `dissolveNow` finally 内「先名册后世界」(摘句柄后、`discardSession` 前);**遗留人员 = `World#getPlayers()` 世界内全员,不以会话名册为界**;平台语义收敛 `SessionServiceImpl.Builder` 两 L0 注入函数(`worldClearer`/`hubWorldClearer`,默认 no-op,落点 `HydrokarbsAssembly`,`hubSpawn()` 与 `hubRelocator` 同源单一来源),best-effort WARN 不阻塞;`WorldPort`/`MiniGameApi` 17 法/`API_VERSION=7` 零改动、★19/★44 零重录;**新增 ★65**(§4,首建于 2.3,持续验证 = `ModeSwitchAtomicityTest` + `FakeWorldPort` sticky/时序录增补)——受影响子阶段与交付顺序约束见本文 **§17**;变更全文见 `../27 号修正案`(现行,非历史存档),决策记录见 `../docs/adr/0015-world-clear-on-switch-and-dissolve.md`。
 
 ## 0. 使用方法
 
@@ -69,9 +71,9 @@
 5. **陷阱前置**:动工前通读 `../14-陷阱清单.md` 中该子阶段引用的条目;39 条陷阱按"会炸得多惨"排序,高编号(v3 组件纯度类、v4 跨级纪律类)在阶段 1~4 尤其致命。
 6. **引擎内容盲**:`engine/**` 不出现任何 mode id 字面量(含 `lobby`)与 `Phase/Rule/Role/Team/Score/Objective` 等内容词汇;组件不出现任何具体玩法内容字样(具体玩法禁词随玩法线清单)——`EnginePurityTest` 与 `EngineHasNoModeStringsTest` 守门(§16.2-★24/4)。
 
-## 4. §16.2 验收(60 条,含 ★34~★40、★41~★55、★56~★58、★59 与 ★60;★v1.3:★10~★12 归属迁宿主线;★v1.4:+★56~★57;★v1.5:+★58;★v1.6:+★59;★v1.7:+★60,★32 废止)→ 阶段映射表
+## 4. §16.2 验收(65 条,含 ★34~★40、★41~★55、★56~★58、★59、★60、★61~★64 与 ★65;★v1.3:★10~★12 归属迁宿主线;★v1.4:+★56~★57;★v1.5:+★58;★v1.6:+★59;★v1.7:+★60,★32 废止;★v1.8:+★61~★64,方法面零变化;★v1.9:+★65,世界清场)→ 阶段映射表
 
-> ★ 编号与归属口径同 `../16-路线图与验收.md` §16.2(框架/玩法两线**同一套编号**,不拆分不重排);「首次建立于/持续验证于」列中标注「迁 Shdf 侧」者为玩法线执行点,行内注给出框架侧承接点;闸门等价物留框架侧的条目(★13)由框架测试先行建立。计数口径:60 条 = 框架 53 + SHDF 扩展线 3(★3/★21/★23)+ 两线联合 1(★32,**★v1.7 废止行不计有效命题**,25 号 §5)+ 宿主线 3(★10/★11/★12,v1.3 迁出,21 §11);★41~★53 为 v1.1 新增、★54~★55 为 v1.2 新增、★56~★57 为 v1.4 新增(22 号)、★58 为 v1.5 新增(23 号)、★59 为 v1.6 新增(24 号)、**★60 为 v1.7 新增(25 号)**,全部归属框架线(★41~★46/★51~★57 首建于 7.5,★47~★50 首建于 8.1,★58 首建于 2.4,★59 首建于 7.2/7.5,★60 首建于 7.5);**★v1.7(25 号):★32 就地废止**(能力标签扩展随标签机制全链退场;编号不删不重排,废止行不计有效命题,命题由 ★60 承接);v1.6 时点口径为「59 条」,v1.5 时点口径为「58 条」,v1.4 时点口径为「57 条」,v1.3 时点口径为「55 条」,v1.2 前口径为「框架 51」(含 ★10~★12,当时归属框架)。
+> ★ 编号与归属口径同 `../16-路线图与验收.md` §16.2(框架/玩法两线**同一套编号**,不拆分不重排);「首次建立于/持续验证于」列中标注「迁 Shdf 侧」者为玩法线执行点,行内注给出框架侧承接点;闸门等价物留框架侧的条目(★13)由框架测试先行建立。计数口径:60 条 = 框架 53 + SHDF 扩展线 3(★3/★21/★23)+ 两线联合 1(★32,**★v1.7 废止行不计有效命题**,25 号 §5)+ 宿主线 3(★10/★11/★12,v1.3 迁出,21 §11);★41~★53 为 v1.1 新增、★54~★55 为 v1.2 新增、★56~★57 为 v1.4 新增(22 号)、★58 为 v1.5 新增(23 号)、★59 为 v1.6 新增(24 号)、★60 为 v1.7 新增(25 号),全部归属框架线(★41~★46/★51~★57 首建于 7.5,★47~★50 首建于 8.1,★58 首建于 2.4,★59 首建于 7.2/7.5,★60 首建于 7.5);**★v1.7(25 号):★32 就地废止**(能力标签扩展随标签机制全链退场;编号不删不重排,废止行不计有效命题,命题由 ★60 承接);**★v1.8(26 号):+★61~★64 归框架线**(地图声明按路径直交/id 路径派生统一/MapDefinition 瘦身与约定键/副本按声明路径复制与命名;首建于 7.5/2.4,权威文本 = 26 号 §5,落盘后复核);**★v1.9(27 号):+★65 归框架线**(世界清场;首建于 2.3,权威文本 = 27 号 §5);v1.8 时点口径为「64 条」,v1.7 时点口径为「60 条」,v1.6 时点口径为「59 条」,v1.5 时点口径为「58 条」,v1.4 时点口径为「57 条」,v1.3 时点口径为「55 条」,v1.2 前口径为「框架 51」(含 ★10~★12,当时归属框架)——**现行计数口径:65 条 = 框架 58 + SHDF 扩展线 3 + 联合 1(★32 废止)+ 宿主线 3**。
 
 | 验收 | 归属 | 命题 | 首次建立于 | 持续验证于 |
 |---|---|---|---|---|
@@ -129,12 +131,17 @@
 | 52 | 框架 | 会话组件贡献·单次(recipe.extra 进表/随 dissolve 灭/响亮拒)(★v1.1) | 7.5 | — |
 | 53 | 框架 | 贡献组件隔离(仅自身 quarantine、会话不解散;预算告警)(★v1.1) | 7.5 | 全阶段 |
 | 54 | 框架 | 地图注册端到端(注册→列出→可开局→卸载摘除/正用拒绝)(★v1.2) | 7.5 | 全阶段 |
-| 55 | 框架 | 地图坏声明响亮拒绝(模板缺失/重复 id 点名;不经 reload)(★v1.2) | 7.5 | 全阶段 |
+| 55 | 框架 | 地图坏声明响亮拒绝(模板缺失/重复 id 点名;不经 reload)(★v1.2;**★v1.8 点注(26 号,权威文本 = 26 号 §5)**:「模板缺失」「模板目录缺失」为模板根时点口径——读作声明自带 `worldDirectoryPath` 缺失或非目录,响亮抛带完整绝对路径;重复 id = 路径派生 id 撞名,同一路径再注册必撞、同名异父同撞) | 7.5 | 全阶段 |
 | 56 | 框架 | 建会话公共面唯一形态(★v1.4):两参 `createSession(String, String)` 不复存在,`createSession(SessionRecipe)` 重载为唯一形态;API_VERSION 3→4、冻结面 16→15 方法 | 7.1(★v1.4 收敛冻结面) | 全阶段复验(`MiniGameApiSurfaceTest`/`ApiSurfaceTest`) |
 | 57 | 框架 | 地图仅注册通道(★v1.4):配置装载零地图条目(`YamlCodec.readMap`/`MapDefinition.from`/`MapRegistry.replace` 与文件半边、无参构造退场),地图仅经 `registerMap` 进目录,目录顺序 = 注册序;注册期校验与正用摘除被拒守卫(20-D3/D4)不变 | 7.5(★v1.4 收敛) | 全阶段复验(`MapRegistryTest`/`MapRegistrationTest`) |
 | 58 | 框架 | 副本复用窗口 = 会话生命周期(★v1.5):REUSE_DIRTY 副本目录随其所属会话解散而销毁(`WorldPort#discardSession` 三类覆盖:切换离开保留的目录/在用句柄/迟到 in-flight);切换离开时目录保留(复用语义不变)、TEMPLATE_RESTORE 归零删副本原样;删除仍唯一走 `deleteCopyDir` 入口 + 路径形态断言;幂等 | 2.4(★v1.5 收敛) | 全阶段复验(`WorldRefCountTest` ⑧ 断言族) |
 | 59 | 框架 | 显式注册收敛(★v1.6):模式与会话组件改经 `MiniGameApi` 显式注册四法——`registerMode(Plugin, MatchModeProvider)`(注册闸 build→verifyDependencies→id 查重全响亮,返回 `MatchModeInfo`)、`unregisterMode(Plugin, modeId)`(只摘自己的 id,越权响亮拒/不存在幂等 no-op;摘除回退编排:fallback-mode force 切换或 FALLBACK_DISSOLVE)、`registerSessionComponents(Plugin, specs)`(干跑校验响亮上抛、幂等重收录)、`unregisterSessionComponents(Plugin)`(幂等);ServicesManager 提供方通道退场(`SessionComponentProvider` SPI 与 `ProviderServiceListener` 删除,`MatchModeRegistry#discover()` 只剩 ServiceLoader 本 jar 半边),注册时序反转 = depend 框架 + `load(MiniGameApi)` 后显式登记;disable 兜底四族(ProviderUnloadListener);API_VERSION 4→5、冻结面 15→19 方法 | 7.5(★v1.6 收敛) | 全阶段复验(`MiniGameApiSurfaceTest`/`ApiSurfaceTest` 快照随 v1.6 合法更新;`ThirdPartyModeRegistrationTest`/`SessionComponentContributionTest` 显式通道复验) |
 | 60 | 框架 | 能力标签机制全链退场(★v1.7):字符串能力标签平行层整体删除(`MiniGameApi` 能力两法——API_VERSION 5→6、冻结面 19→17;`CapabilityRegistry`;切换 A2 校验;`MatchModeMeta.requiredCapabilities`;`MatchModeInfo` 快照分量;`SessionComponent.Specification#capabilities`;`ServiceSpec.capabilities` 与 seal/shutdown 两端注册;`ProviderUnloadListener` 能力块——兜底四族收敛三族;`capabilityClaims`)——外部能力 = **会话组件桥接**:提供方经 `registerSessionComponents`/`SessionRecipe` 贡献类型化桥接会话组件,消费方组件 `requires`/`requiresOptional` 类型化声明,装配期响亮、运行期 quarantine(语义位移 = 创建时绑定 + 运行期降级,provider 摘除只影响后续会话;软依赖 = `requiresOptional`,★21 承载);★32 同批废止(§16.2) | 7.5(★v1.7 收敛;`MiniGameApiSurfaceTest` FROZEN 17 行、`ApiSurfaceTest` BASELINE 重录、API_VERSION=6;`CapabilitySoftDependTest` 标签断言族随机制退役) | 全阶段复验(桥接组件经 `SessionComponentContributionTest` requires/requiresOptional 断言族复验) |
+| 61 | 框架 | 地图声明按路径直交(★v1.8):「模板寄居 `maps/templates/`」约定退场——`MapDefinition` 自带 `worldDirectoryPath`(构造期规范化绝对路径,缺目录名响亮抛);注册期校验直验声明路径存在且为目录(缺失/非目录响亮抛带完整绝对路径);`MapRegistry` 无 `templatesRoot`、`HydrokarbsAssembly` 撤模板根派生;`WorldPortImpl`/`PlaceholderWorldPort` 以声明路径为基准(行为语义零改动) | 7.5(★v1.8 增量;`MapRegistryTest` 路径直验/规范化/响亮抛断言;`ApiSurfaceTest` BASELINE 随声明形状重录) | 全阶段复验 |
+| 62 | 框架 | 地图 id 路径派生统一(★v1.8):id = 声明目录名——目录查重/`WorldPort` 副本命名与 deleteCopyDir 断言/`SessionRecipe` 钉图键三处同一来源;同一路径再注册必撞查重闸,同名异父目录同撞 | 7.5(★v1.8 增量;`MapRegistrationTest` 钉图/查重端到端;`MapRegistryTest` 同名异父断言) | 全阶段复验 |
+| 63 | 框架 | MapDefinition 瘦身 + 声明词料约定键(★v1.8):两分量 `(worldDirectoryPath, metaAttributes)`,原九分量全删;`map/` 包 Bounds 族出册;tags/处置策略 = `map.tags`/`map.reset-strategy`(`MetaAttributes` 门面三口径——专用写口/`set` 断言不放开、注册期冻结脱钩、声明级生命周期;缺省 REUSE_DIRTY 不变);`MapInfo` 收缩 `(id, tags, resetStrategy)` | 7.5(★v1.8 增量;`MapRegistryTest` 冻结脱钩/缺省语义;`ApiSurfaceTest` BASELINE 快照合法重录) | 全阶段复验 |
+| 64 | 框架 | 副本按声明路径复制与命名(★v1.8):`WorldPortImpl` 复制源恒为声明自带 `worldDirectoryPath`(缺失 → future 异常完成 + 清 in-flight、计数未入表,不降级);`PlaceholderWorldPort` 世界查找基准 = 声明路径派生 id;副本目录名 = `mapId-<会话短码>`(`map.id() + "-" + 会话短码`,新基准);`deleteCopyDir` 唯一删除口的路径形态断言按新基准(仅限副本根下 `<mapId>-<短码>` 形态,绝不递归删任意路径);`WorldHandle#reset` 值 = 约定键缺省语义(REUSE_DIRTY);**复用窗口 = 会话生命周期(★58)与 TEMPLATE_RESTORE 行为原样** | 2.4(★v1.8 增量;`WorldRefCountTest` ⑧ 组断言族按 ★v1.8 新基准——复制源/命名/删除断言;`SwitchHarness`;离线零 Bukkit)(权威文本 = 26 号 §5) | 全阶段复验 |
+| 65 | 框架 | 世界清场(★v1.9):切换地图时旧世界内全部遗留人员(`World#getPlayers()`,不以会话名册为界)传往对应地图出生点——同世界复用(判据 = `org.bukkit.World` 引用相等、首切空值分支)走 B3.5 先行于 B4 组件摆放(恰一次、from == to、finally 门闩不重复)、异图走 B5 finally 殿后(完成事件之后 release 之前、from/to 互指代理世界);解散时传往主世界出生点(与 `hubRelocator` 同源)——先名册后世界、恰一次、先于 `discardSession`;heldWorld 为 null 跳过无害;清场注入抛异常 → 切换仍成功、release 照发、WARN;`WorldPort` 接口与公共面零改动 | 2.3(★v1.9 清场断言族:sticky 同句柄 + seamLog 时序录;`ModeSwitchAtomicityTest` 五用例)(权威文本 = 27 号 §5) | 全阶段复验(`ModeSwitchAtomicityTest` ★65 断言族;平台正确性归 runServer 实测,同 ★17 分工) |
 
 ## 5. 子阶段文档模板(各阶段统一)
 
@@ -274,7 +281,7 @@
 
 ## 12. v1.4 影响清单与交付顺序(API 面收敛与地图注册单通道)
 
-> ★v1.4(2026-10-27):①**API 面收敛**——两参 `createSession(String, String)` 重载删除,`SessionRecipe` 重载为公共 API 建会话唯一形态;API_VERSION 3→4,冻结面 16→15 方法(★19 冻结清单与 ★44 白名单快照随裁决合法重录,07 §7.2 One-Version Rule:同一能力只保留一份口径)。②**地图注册单通道**——「配置文件声明地图」特性退场:文件式装载整链删除(`ConfigRepository.loadMaps`、`YamlCodec.readMap`、`MapDefinition.from`、`MapRegistry.replace` 与文件半边、无参构造),`MapRegistry` 只剩显式注册/摘除通道(目录顺序 = 注册序);世界模板目录约定 `maps/templates/<mapId>/`、注册期校验与「正用摘除被拒」守卫(20-D3/D4)不变。
+> ★v1.4(2026-10-27):①**API 面收敛**——两参 `createSession(String, String)` 重载删除,`SessionRecipe` 重载为公共 API 建会话唯一形态;API_VERSION 3→4,冻结面 16→15 方法(★19 冻结清单与 ★44 白名单快照随裁决合法重录,07 §7.2 One-Version Rule:同一能力只保留一份口径)。②**地图注册单通道**——「配置文件声明地图」特性退场:文件式装载整链删除(`ConfigRepository.loadMaps`、`YamlCodec.readMap`、`MapDefinition.from`、`MapRegistry.replace` 与文件半边、无参构造),`MapRegistry` 只剩显式注册/摘除通道(目录顺序 = 注册序);世界模板目录约定 `maps/templates/<mapId>/`、注册期校验与「正用摘除被拒」守卫(20-D3/D4)不变。(**★v1.8 点注(26 号,权威文本 = 26 号 §5)**:「世界模板目录约定…不变」半句为 v1.4 时点口径——模板根约定随 26 号退场;「注册期校验」在新形状 = 声明路径存在且为目录 + 同路径查重(★61/★62 续守),「正用摘除被拒」(20-D4)不变)
 > 变更全文见 `../22-v1.4修正案-API面收敛与地图注册单通道.md`(变更指示,现行,非历史存档),决策记录见 `../docs/adr/0010-api-surface-consolidation.md`(Supersedes ADR-0008 的文件式通道部分);新增验收 **★56~★57**(§4,首建于 7.1/7.5);施工已随 v1.4 窗口完成(git 实况为准),本节留档影响面。
 
 ### 12.1 受影响子阶段
@@ -349,6 +356,44 @@
 - **子阶段计数与依赖图不变**:v1.7 是对已验收面(1.6/2.3/2.6/7.1/7.2/7.5)的机制退场收敛,不新增子阶段、不改依赖;★60 由 v1.7 窗口补建、★32 同批废止(编号不删不重排)。
 - **存量消费方迁移**:①原调 `registerCapability(Plugin, tag)` 的提供方 → 贡献**类型化桥接会话组件**(`onEnable` 调 `api.registerSessionComponents(this, specs)` 或经 `SessionRecipe` 单次携带),消费方组件在 Spec 上 `requires(...)`/`requiresOptional(...)` 声明依赖;②消费方 `onEnable` 版本检查 REQUIRED = 6(14.36);③**存量会话语义**:provider 摘除只影响后续会话,存量会话由桥接组件自身降级承接(D14;运行期 quarantine/降级既有机制,★30/★53);④显式反注册仍是纪律(兜底三族:模式/地图/会话组件贡献,14.38)。
 
+## 16. v1.8 影响清单与交付顺序(地图声明按路径直交 + MapDefinition 瘦身)
+
+> ★v1.8(2026-10-28;修正案 26 号,**方法面零变化**):「模板寄居框架数据目录 `maps/templates/`」约定退场——`MapDefinition` 自带 `worldDirectoryPath`(构造期规范化为绝对路径入库,缺目录名响亮抛),`MapRegistry` 删 `templatesRoot` 构造依赖、注册校验直验声明路径存在且为目录(缺失/非目录响亮抛带完整绝对路径),`HydrokarbsAssembly` 撤模板根派生;`MapDefinition` 瘦身为 `(worldDirectoryPath, metaAttributes)` 两分量(原九分量全删——tags/处置策略走 `MetaAttributes` 约定键 `map.tags`/`map.reset-strategy`,缺省 REUSE_DIRTY 语义不变;id = 声明目录名路径派生);`map/` 包 Bounds 族出册;`MapInfo` 收缩 `(id, tags, resetStrategy)`;`AttributeBag` 增 `declaration`/`copyOf`;`WorldPortImpl`/`PlaceholderWorldPort` 以声明路径为基准(复制/计数/处置管线零改动)。
+> 变更全文见 `../26 号修正案`(正文落盘前以本横幅与本节为准);新增验收 **★61~★64**(§4,首建于 7.5/2.4;权威文本 = 26 号 §5)、**★54~★55/★57 就地注**(解包模板/模板目录缺失为模板根时点口径,命题不变;★57 尾部「模板目录约定…不变」半句为 v1.4 时点口径);施工已随 v1.8 窗口完成(git 实况为准),本节留档影响面。
+
+### 16.1 受影响子阶段
+
+| 子阶段 | v1.8 影响 | 处置(落点) |
+|---|---|---|
+| 2.4 地图注册 | **注册校验口径改写**:`MapRegistry` 删 `templatesRoot` 构造依赖——校验直验声明自带 `worldDirectoryPath` 存在且为目录(缺失/非目录响亮抛带完整绝对路径);id 查重 = 路径派生(同一路径再注册必撞、同名异父同撞);`MapTestKit` 按新基准改写(落盘即声明目录本体);★61~★64 断言族落本子阶段 | 施工已完成;本档头部加 ★v1.8 注(原文为施工序列存档,不改写) |
+| 7.2 第三方注册与扩展 | **收录面**:地图声明构造读作新形状——`registerMap` 载荷 = 两分量 `MapDefinition`(词料经 `MetaAttributes` 约定键,构造期冻结);消费样例 REQUIRED_API_VERSION 升 7(14.36) | 施工已完成;本档头部加 ★v1.8 注(原文为施工序列存档,不改写) |
+| 12(设计篇 §12) | **map/ 包行注按现行实签重录**:`MapDefinition` 两分量/增 `MetaAttributes.java`/`MapRegistry` 无模板根/Bounds 族出册;view/ 行注 MapInfo 收缩;`AttributeBag` 行注增两口;`bridge/world/` 行注复制源 = 声明自带路径;resources `maps/templates/` 与形态 B 树两处模板行加退场注 | 正文已就地修订(设计正文,非施工存档;12-代码骨架.md 版本行 v1.8) |
+| 其余阶段(1/2 余项/4/5/7 余项/8) | 引擎与切换管线零改动——**v1.8 影响:无**(复制/计数/处置行为语义零改动;`SessionRecipe`/`MapInfo` 形状侧变更经 BASELINE 重录承载) | 各阶段 README 原注不变 |
+
+### 16.2 交付顺序约束
+
+- **子阶段计数与依赖图不变**:v1.8 是对已验收面(2.4/7.2)的声明形状收敛,不新增子阶段、不改依赖;★61~★64 由 v1.8 窗口补建(首建于 7.5/2.4,编号只增不重排)。
+- **存量消费方迁移**:①原以 `MapDefinition` Builder/多分量构造的调用方 → 改两参构造 `new MapDefinition(世界目录路径, metaAttributes.frozen())`(词料经 `MetaAttributes#set` 写约定键;id 无需显式声明——从路径派生,目录名即 id);②原约定「解包到 `maps/templates/<mapId>/`」的落盘步 → 落盘位置由声明直指(如插件数据目录 `maps/<id>/`),**注册前路径已就位**(14.39 新口径);③消费方 `onEnable` 版本检查 REQUIRED = 7(14.36);④显式反注册纪律不变(兜底三族,14.38)。
+
+## 17. v1.9 影响清单与交付顺序(切换与解散的世界清场)
+
+> ★v1.9(2026-10-28;修正案 27 号,**内核接缝 + L0 注入函数,非破坏性**):消除「世界内有玩家 → `Bukkit.unloadWorld` 返回 false → SEVERE + 保留目录」路径(23 号销毁闭环的伴生收口)——**切换** = 同世界复用(判据 = `org.bukkit.World` 引用相等,首切空值分支跳过)新步 B3.5 清场先行于 B4 组件摆放、异图切换 B5 finally 殿后(既有 `previousWorld` 非 null 守卫内、完成事件之后、release 之前、`!sameWorldReuse` 门闩);**解散** = `dissolveNow` finally 内「先名册后世界」(摘句柄后、`worlds.discardSession` 前,heldWorld 非 null 才清);**遗留人员 = `World#getPlayers()` 世界内全员,不以会话名册为界**;平台语义收敛 `SessionServiceImpl.Builder` 两 L0 注入函数(`worldClearer`/`hubWorldClearer`,默认 no-op,落点 `HydrokarbsAssembly`,`hubSpawn()` 与 `hubRelocator` 同源单一来源),best-effort WARN 不阻塞;`WorldPort`/`MiniGameApi` 17 法/`API_VERSION=7` 零改动、★19/★44 零重录。
+> 变更全文见 `../27 号修正案`(现行,非历史存档),决策记录见 `../docs/adr/0015-world-clear-on-switch-and-dissolve.md`;新增验收 **★65**(§4,首建于 2.3);施工已随 v1.9 窗口完成(git 实况为准),本节留档影响面。
+
+### 17.1 受影响子阶段
+
+| 子阶段 | v1.9 影响 | 处置(落点) |
+|---|---|---|
+| 2.3 switchMode 两阶段切换 | **执行段 B 插 B3.5**(B3 合并后、B4 造件前:同世界复用清场先行,判据 = `org.bukkit.World` 引用相等 + 首切空值分支)+ **B5 finally 殿后清场**(既有 `previousWorld` 非 null 守卫内、release 前、`!sameWorldReuse` 门闩;时序 = 完成事件之后 release 之前);`dissolveNow` finally 增清场口(摘句柄后、`discardSession` 前) | 施工已完成(`ModeSwitchAtomicityTest` 扩 ★65 清场断言族:异图显式 mapId/B3.5 先行/失败不阻塞/解散/null 句柄);2.3 文档为施工序列存档,按 27 §4 指示读 |
+| 2.3 测试基座(SwitchHarness/FakeWorldPort) | **离线断言前提增补**:`FakeWorldPort` 增 `sticky()` 同 (map, session) 幂等同句柄工厂(镜像真端口表命中;`immediate()` 原样不动)+ `seamLog` 接缝时序录(release/discardSession 按调用序追加);`SwitchHarness` 增 `worldClears`/`hubWorldClears`/`seamLog` 记录面与 sticky/抛异常两装配口 | 施工已完成(缺该增补则同世界判据离线恒 false、release 无序可断——27 号 §6/§7 登记);本档头部加 ★v1.9 注 |
+| 1.6 平台函数注入(L0 装配) | `HydrokarbsAssembly` 增 `hubSpawn()`(主世界出生点单一来源,`hubRelocator` 改用,语义零变化)与 `worldClearer()`/`hubWorldClearer()` 两私有工厂;assemble 接线两行 | 施工已完成;本档头部加 ★v1.9 注 |
+| 其余阶段(1 余项/2.4/2.6/4/5/7/8) | 引擎机制与世界端口零改动——**v1.9 影响:无**(`WorldPort` 三法/引用计数/复用窗口/`MiniGameApi` 冻结面与 `API_VERSION=7` 一寸不动;★17/★58 冻结断言零触碰——`WorldRefCountTest` 自建 Builder,默认 no-op 清场) | 各阶段 README 原注不变 |
+
+### 17.2 交付顺序约束
+
+- **子阶段计数与依赖图不变**:v1.9 是对 2.3 已验收面的接缝收口(23 号销毁闭环的伴生),不新增子阶段、不改依赖;★65 由 v1.9 窗口补建(首建于 2.3,编号只增不重排)。
+- **行为对照**:切换 = 同世界复用 B3.5 先行(组件其后摆位,终态正确)/异图 B5 殿后(每人至多一次传送);解散 = 先名册后世界(两级覆盖互为兜底);清场失败 WARN 不阻塞,「卸载失败保留目录」(23-D2)仍为最后防线;同图重开「原地起步 → 出生点起步」为经 27 号修正案裁决的冻结语义变更(跨局位置保留改组件自读 Handoff 自理);**runServer 运行期观察项**:`World#getPlayers` 枚举与 teleport 的平台正确性、同 tick 双传送耗时(2.5 闭环,同 ★17 分工)。
+
 ---
 
-*施工计划版本:v1.0(2026-10-16,由统筹规划生成;各阶段内容经并行编写 + 对抗式评审修订;★v1.3 增补 §11;★v1.4 增补 §12;★v1.5 增补 §13;★v1.6 增补 §14;★v1.7 增补 §15)*
+*施工计划版本:v1.0(2026-10-16,由统筹规划生成;各阶段内容经并行编写 + 对抗式评审修订;★v1.3 增补 §11;★v1.4 增补 §12;★v1.5 增补 §13;★v1.6 增补 §14;★v1.7 增补 §15;★v1.8 增补 §16;★v1.9 增补 §17)*

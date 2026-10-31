@@ -27,10 +27,12 @@ class EngineHasNoModeStringsTest {
 
     /**
      * 合法 mode id 全集(★4 检验方式原文:禁词表含全部合法 mode id)。
-     * 框架线本阶段即含 {@code lobby}(★13 的框架闸门等价物,施工计划 §4);
+     * 框架线本阶段含 {@code lobby}(★13 的框架闸门等价物,施工计划 §4)与
+     * {@code limbo}(★v1.13/31 号:出厂兜底空模式,经 SPI 注册入册——零碰撞
+     * 已实证,禁词表随出厂模式机械顺表扩充、非放宽);
      * 各具体玩法模式 id 不住框架基线——新增模式时同步扩充本表。
      */
-    private static final String[] FORBIDDEN_MODE_IDS = {"lobby"};
+    private static final String[] FORBIDDEN_MODE_IDS = {"lobby", "limbo"};
 
     /** main 源集的两个扫描根(L4 模式包与桥接不扫)。 */
     private static final List<Path> SCAN_ROOTS = List.of(

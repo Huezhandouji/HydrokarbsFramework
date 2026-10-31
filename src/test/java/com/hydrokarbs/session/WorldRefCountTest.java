@@ -44,7 +44,6 @@ import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.mode.MatchModeRegistry;
 import com.hydrokarbs.map.MapDefinition;
 import com.hydrokarbs.map.MapRegistry;
-import com.hydrokarbs.map.RegionSet;
 import com.hydrokarbs.testkit.FakeWorldPort;
 import com.hydrokarbs.testkit.MapTestKit;
 import com.hydrokarbs.testkit.OfflineAssembly;
@@ -55,14 +54,16 @@ import com.hydrokarbs.testkit.OfflineAssembly;
  *
  * <p>检验对象是 {@link WorldPortImpl} 的计数与处置逻辑:注入假 {@link WorldLoader}
  * (内存假世界、记录装卸调用与执行器域)驱动,百次循环离线可跑;真服的世界装卸抽查
- * 并入 2.5 闭环,两处合计才是 ★17 的完整证据。
+ * 并入 2.5 闭环,两处合计才是 ★17 的完整证据。★v1.8(26 号修正案议题)按新基准
+ * 改写:复制源 = 声明自带 {@code worldDirectoryPath}(无模板根),副本命名基准 =
+ * 路径派生 id(声明目录名)+ 会话短码——断言重写基准,不是放宽。
  *
  * <p>覆盖七组断言:①100 次循环零泄漏;②并发合并与计数;③两种处置策略;
- * ④缺模板;⑤准备超时;⑥REUSE_DIRTY 同会话复载不复制;⑦清残留的路径形态边界;
- * ⑧会话销毁 discardSession(★v1.4 复用窗口 = 会话生命周期:REUSE_DIRTY 解散后
- * 销毁、双图全覆盖、TEMPLATE_RESTORE 结论一致、幂等无害,以及一例真会话服务 ×
- * 真端口的端到端:复制中途解散,迟到 in-flight 经 onWorldReady 守卫释放、
- * 目录经已死短码判据删除);
+ * ④缺声明目录(含越出父目录的路径解析);⑤准备超时;⑥REUSE_DIRTY 同会话复载
+ * 不复制;⑦清残留的路径形态边界;⑧会话销毁 discardSession(★v1.4 复用窗口 =
+ * 会话生命周期:REUSE_DIRTY 解散后销毁、双图全覆盖、TEMPLATE_RESTORE 结论一致、
+ * 幂等无害,以及一例真会话服务 × 真端口的端到端:复制中途解散,迟到 in-flight
+ * 经 onWorldReady 守卫释放、目录经已死短码判据删除);
  * 另附状态不变式四条(count≥1 / 同 instanceName 至多一条 / in-flight 必清 /
  * 归零必移除)、线程契约断言(装卸在主线程执行器、复制删目录在 IO 执行器)与
  * release 两种完成时机语义。
@@ -147,18 +148,17 @@ class WorldRefCountTest {
         }
     }
 
-    /** 测试装置:模板根/副本根 + 假载器 + 直跑(或门闩)双执行器 + 真端口实现。 */
+    /** 测试装置:副本根 + 假载器 + 直跑(或门闩)双执行器 + 真端口实现
+     *  (★v1.8:端口不再持模板根——复制源随各声明的 worldDirectoryPath)。 */
     private static final class Rig {
 
-        final Path templates;
         final Path copies;
         final FakeWorldLoader loader = new FakeWorldLoader();
         final AtomicInteger ioTasks = new AtomicInteger();
         final GatedThreadedIo gatedIo;      // null = 直跑 IO
         final WorldPortImpl port;
 
-        Rig(Path templates, Path copies, GatedThreadedIo gatedIo, long timeoutMillis) {
-            this.templates = templates;
+        Rig(Path copies, GatedThreadedIo gatedIo, long timeoutMillis) {
             this.copies = copies;
             this.gatedIo = gatedIo;
             java.util.concurrent.Executor io = gatedIo != null ? gatedIo : command -> {
@@ -180,12 +180,12 @@ class WorldRefCountTest {
             };
             Logger logger = Logger.getLogger("world-ref-count-test");
             logger.setUseParentHandlers(false);
-            port = new WorldPortImpl(loader, templates, copies, main, io,
+            port = new WorldPortImpl(loader, copies, main, io,
                     java.time.Duration.ofMillis(timeoutMillis), logger);
         }
 
-        static Rig direct(Path templates, Path copies) {
-            return new Rig(templates, copies, null, 30_000L);
+        static Rig direct(Path copies) {
+            return new Rig(copies, null, 30_000L);
         }
     }
 
@@ -193,13 +193,13 @@ class WorldRefCountTest {
 
     private static final SessionId SESSION = new SessionId("arena-1");
 
-    private static MapDefinition map(String id, ResetStrategy reset) {
-        return new MapDefinition(id, id, "w-" + id, Set.of("common"), null, java.util.Map.of(),
-                RegionSet.empty(), List.of(), java.util.Map.of(), reset);
+    /** 声明构造(★v1.8 新形状):路径 = {@code <declarations>/<id>},策略进约定键。 */
+    private static MapDefinition map(Path declarations, String id, ResetStrategy reset) {
+        return MapTestKit.declaration(declarations.resolve(id), Set.of("common"), reset);
     }
 
-    private static void layTemplate(Path templates, String mapId, String... files) throws IOException {
-        Path dir = templates.resolve(mapId);
+    private static void layTemplate(Path declarations, String mapId, String... files) throws IOException {
+        Path dir = declarations.resolve(mapId);
         Files.createDirectories(dir);
         for (String file : files) {
             Files.writeString(dir.resolve(file), "template-content:" + file);
@@ -247,13 +247,13 @@ class WorldRefCountTest {
     // ── ① 100 次循环零泄漏(+不变式/线程契约并入) ─────────────────────
 
     @Test
-    void hundredCycleAcquireReleaseLeavesZeroLeak(@TempDir Path templates, @TempDir Path copies)
+    void hundredCycleAcquireReleaseLeavesZeroLeak(@TempDir Path declarations, @TempDir Path copies)
             throws IOException {
-        layTemplate(templates, "lobby_main", "level.dat", "region.marker");
-        layTemplate(templates, "lobby_mini", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition reuseMap = map("lobby_main", ResetStrategy.REUSE_DIRTY);
-        MapDefinition restoreMap = map("lobby_mini", ResetStrategy.TEMPLATE_RESTORE);
+        layTemplate(declarations, "lobby_main", "level.dat", "region.marker");
+        layTemplate(declarations, "lobby_mini", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition reuseMap = map(declarations, "lobby_main", ResetStrategy.REUSE_DIRTY);
+        MapDefinition restoreMap = map(declarations, "lobby_mini", ResetStrategy.TEMPLATE_RESTORE);
 
         // 模拟切换时序:先获取新图,后释放旧图(§3.7 释放时机);两图交替 100 轮,
         // 两种处置策略都随轮次被覆盖(REUSE_DIRTY 复载/TEMPLATE_RESTORE 重拷)
@@ -305,11 +305,11 @@ class WorldRefCountTest {
     @Test
     @SuppressWarnings("unchecked")
     void concurrentAcquireMergesToSingleCreateAndCountsFive(
-            @TempDir Path templates, @TempDir Path copies) throws Exception {
-        layTemplate(templates, "arena_x", "level.dat");
+            @TempDir Path declarations, @TempDir Path copies) throws Exception {
+        layTemplate(declarations, "arena_x", "level.dat");
         GatedThreadedIo gatedIo = new GatedThreadedIo();
-        Rig rig = new Rig(templates, copies, gatedIo, 30_000L);
-        MapDefinition target = map("arena_x", ResetStrategy.REUSE_DIRTY);
+        Rig rig = new Rig(copies, gatedIo, 30_000L);
+        MapDefinition target = map(declarations, "arena_x", ResetStrategy.REUSE_DIRTY);
 
         // 门闩关住 IO:首个获取在途(复制未完成),后续 4 个并发 miss 合并到同一 future
         CompletableFuture<WorldHandle> first = rig.port.acquire(target, SESSION);
@@ -344,13 +344,13 @@ class WorldRefCountTest {
     // ── ③ 两种处置策略 + ⑥ REUSE_DIRTY 同会话复载不复制(脏标记黑盒) ─────────
 
     @Test
-    void resetStrategiesDisposeCopiesAccordingly(@TempDir Path templates, @TempDir Path copies)
+    void resetStrategiesDisposeCopiesAccordingly(@TempDir Path declarations, @TempDir Path copies)
             throws IOException {
-        layTemplate(templates, "keep_x", "level.dat");
-        layTemplate(templates, "wipe_y", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition keep = map("keep_x", ResetStrategy.REUSE_DIRTY);
-        MapDefinition wipe = map("wipe_y", ResetStrategy.TEMPLATE_RESTORE);
+        layTemplate(declarations, "keep_x", "level.dat");
+        layTemplate(declarations, "wipe_y", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition keep = map(declarations, "keep_x", ResetStrategy.REUSE_DIRTY);
+        MapDefinition wipe = map(declarations, "wipe_y", ResetStrategy.TEMPLATE_RESTORE);
 
         // REUSE_DIRTY:归零保留目录;同会话再次获取直接复载、不复制
         // (黑盒脏标记:复制会清残留重抄使标记消失;复用则标记原样保留)
@@ -366,7 +366,7 @@ class WorldRefCountTest {
         assertEquals(2, rig.loader.createCount.get(), "复载仍应重新加载世界");
         awaitVoid(rig.port.release(reloaded));
 
-        // TEMPLATE_RESTORE:归零删除目录;再次获取从模板重新复制(标记消失)
+        // TEMPLATE_RESTORE:归零删除目录;再次获取从声明目录重新复制(标记消失)
         WorldHandle wiped = await(rig.port.acquire(wipe, SESSION));
         Path wipedDir = copies.resolve(wiped.instanceName());
         Files.writeString(wipedDir.resolve("dirty-marker.txt"), "应被模板还原抹掉");
@@ -375,37 +375,37 @@ class WorldRefCountTest {
         WorldHandle restored = await(rig.port.acquire(wipe, SESSION));
         assertFalse(Files.exists(wipedDir.resolve("dirty-marker.txt")),
                 "重拷后不应残留脏标记");
-        assertTrue(Files.exists(wipedDir.resolve("level.dat")), "重拷应以模板内容为准");
+        assertTrue(Files.exists(wipedDir.resolve("level.dat")), "重拷应以声明目录内容为准");
         awaitVoid(rig.port.release(restored));
         assertInvariants(rig.port, "两策略处置后");
     }
 
-    // ── ④ 缺模板:future 异常完成且计数未入表 ───────────────────────
+    // ── ④ 缺声明目录:future 异常完成且计数未入表 ───────────────────────
 
     @Test
-    void missingTemplateFailsCleanlyWithoutTableEntry(@TempDir Path templates, @TempDir Path copies)
+    void missingDeclarationDirFailsCleanlyWithoutTableEntry(@TempDir Path declarations,
+                                                            @TempDir Path copies)
             throws IOException {
-        Files.createDirectories(templates);                 // 模板根存在但无该地图
-        Rig rig = Rig.direct(templates, copies);
+        Rig rig = Rig.direct(copies);
         CompletableFuture<WorldHandle> future =
-                rig.port.acquire(map("ghost", ResetStrategy.REUSE_DIRTY), SESSION);
+                rig.port.acquire(map(declarations, "ghost", ResetStrategy.REUSE_DIRTY), SESSION);
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> future.get(5, TimeUnit.SECONDS));
         assertTrue(failure.getCause().getMessage().contains("模板目录缺失"),
-                "缺模板应点名模板路径: " + failure.getCause().getMessage());
+                "缺声明目录应点名复制源路径: " + failure.getCause().getMessage());
         assertTrue(rig.port.refCounts().isEmpty(), "失败获取不得入表");
         assertEquals(0, rig.port.inflightCount(), "失败后 in-flight 必清");
-        assertEquals(0, rig.loader.createCount.get(), "缺模板不应触发加载");
+        assertEquals(0, rig.loader.createCount.get(), "缺声明目录不应触发加载");
 
-        // 同名穿越型地图 id:模板解析不成立 → 同一失败路径,且副本根零新增
-        // (walk 含根目录自身,须剔除后计数)
+        // 越出声明父目录的路径解析(..):声明路径构造期规范化,解析越界照旧走
+        // 同一失败路径,且副本根零新增(walk 含根目录自身,须剔除后计数)
         CompletableFuture<WorldHandle> traversal =
-                rig.port.acquire(map("../evil", ResetStrategy.TEMPLATE_RESTORE), SESSION);
+                rig.port.acquire(map(declarations, "../evil", ResetStrategy.TEMPLATE_RESTORE), SESSION);
         assertThrows(ExecutionException.class, () -> traversal.get(5, TimeUnit.SECONDS));
         try (Stream<Path> walk = Files.walk(copies)) {
             assertEquals(0, walk.filter(path -> !path.equals(copies)).count(),
-                    "穿越型地图 id 不得在副本根产生任何路径");
+                    "越界路径解析不得在副本根产生任何路径");
         }
     }
 
@@ -413,11 +413,11 @@ class WorldRefCountTest {
 
     @Test
     void prepareTimeoutCompletesExceptionallyAndAllowsRetry(
-            @TempDir Path templates, @TempDir Path copies) throws Exception {
-        layTemplate(templates, "slow_z", "level.dat");
+            @TempDir Path declarations, @TempDir Path copies) throws Exception {
+        layTemplate(declarations, "slow_z", "level.dat");
         GatedThreadedIo gatedIo = new GatedThreadedIo();
-        Rig rig = new Rig(templates, copies, gatedIo, 150L);       // 短超时替代 30s(可测口径)
-        MapDefinition target = map("slow_z", ResetStrategy.REUSE_DIRTY);
+        Rig rig = new Rig(copies, gatedIo, 150L);       // 短超时替代 30s(可测口径)
+        MapDefinition target = map(declarations, "slow_z", ResetStrategy.REUSE_DIRTY);
 
         // IO 门闩关住 → 复制挂起 → 150ms 超时:future 异常完成、in-flight 清、未入表
         CompletableFuture<WorldHandle> hung = rig.port.acquire(target, SESSION);
@@ -452,46 +452,46 @@ class WorldRefCountTest {
     // ── ⑦ 清残留与删除的路径形态边界(仅限副本根下本实现形态) ─────────────
 
     @Test
-    void copyCleanupIsConfinedToManagedShape(@TempDir Path templates, @TempDir Path copies)
+    void copyCleanupIsConfinedToManagedShape(@TempDir Path declarations, @TempDir Path copies)
             throws IOException {
-        layTemplate(templates, "shaped_a", "level.dat", "wanted.txt");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition shaped = map("shaped_a", ResetStrategy.TEMPLATE_RESTORE);
+        layTemplate(declarations, "shaped_a", "level.dat", "wanted.txt");
+        Rig rig = Rig.direct(copies);
+        MapDefinition shaped = map(declarations, "shaped_a", ResetStrategy.TEMPLATE_RESTORE);
         SessionId session = SESSION;
         String instanceName = "shaped_a-" + session.shortCode();
 
-        // 预置三类干扰物:同名残留(带垃圾)、同根异名目录、模板根文件
+        // 预置三类干扰物:同名残留(带垃圾)、同根异名目录、声明目录文件
         Path staleDir = copies.resolve(instanceName);
         Files.createDirectories(staleDir);
         Files.writeString(staleDir.resolve("junk-leftover.txt"), "上次异常残留");
         Path unrelatedDir = copies.resolve("zzz-unrelated-1");
         Files.createDirectories(unrelatedDir);
         Files.writeString(unrelatedDir.resolve("keep.txt"), "与本实现无关的目录");
-        Path templateMarker = templates.resolve("shaped_a").resolve("level.dat");
+        Path declarationMarker = declarations.resolve("shaped_a").resolve("level.dat");
 
-        // TEMPLATE_RESTORE 获取:同名残留被清(形态匹配)后以模板内容重建;
-        // 异名目录与模板根原封不动——删除范围仅限副本根下本实现形态
+        // TEMPLATE_RESTORE 获取:同名残留被清(形态匹配)后以声明目录内容重建;
+        // 异名目录与声明目录原封不动——删除范围仅限副本根下本实现形态
         WorldHandle handle = await(rig.port.acquire(shaped, session));
         assertFalse(Files.exists(staleDir.resolve("junk-leftover.txt")), "同名残留应被清空");
-        assertTrue(Files.exists(staleDir.resolve("level.dat")), "副本应以模板内容重建");
+        assertTrue(Files.exists(staleDir.resolve("level.dat")), "副本应以声明目录内容重建");
         assertTrue(Files.exists(unrelatedDir.resolve("keep.txt")), "异名目录不得被触碰");
-        assertTrue(Files.exists(templateMarker), "模板母本不得被触碰");
+        assertTrue(Files.exists(declarationMarker), "声明目录母本不得被触碰");
 
         // 归零删除也只删本实现形态的目录,异名目录仍在
         awaitVoid(rig.port.release(handle));
         assertFalse(Files.exists(staleDir), "TEMPLATE_RESTORE 归零删除副本目录");
         assertTrue(Files.exists(unrelatedDir), "归零删除后异名目录仍应在");
-        assertTrue(Files.exists(templateMarker), "归零删除不得波及模板母本");
+        assertTrue(Files.exists(declarationMarker), "归零删除不得波及声明目录母本");
     }
 
     // ── release 两种完成时机语义 + 同图重开计数配平 ────────────────────
 
     @Test
-    void releaseCompletionSemanticsAndSameMapBalance(@TempDir Path templates, @TempDir Path copies)
+    void releaseCompletionSemanticsAndSameMapBalance(@TempDir Path declarations, @TempDir Path copies)
             throws IOException {
-        layTemplate(templates, "paired_p", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition target = map("paired_p", ResetStrategy.REUSE_DIRTY);
+        layTemplate(declarations, "paired_p", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition target = map(declarations, "paired_p", ResetStrategy.REUSE_DIRTY);
 
         // 未归零:立即完成,零装卸、零 IO 任务
         WorldHandle first = await(rig.port.acquire(target, SESSION));
@@ -517,8 +517,8 @@ class WorldRefCountTest {
         assertInvariants(rig.port, "配平与幂等检查后");
 
         // 归零(TEMPLATE_RESTORE)的 future 完成点 = 目录删除完成之后
-        layTemplate(templates, "paired_q", "level.dat");
-        MapDefinition wipe = map("paired_q", ResetStrategy.TEMPLATE_RESTORE);
+        layTemplate(declarations, "paired_q", "level.dat");
+        MapDefinition wipe = map(declarations, "paired_q", ResetStrategy.TEMPLATE_RESTORE);
         WorldHandle wiped = await(rig.port.acquire(wipe, SESSION));
         int ioBeforeWipe = rig.ioTasks.get();
         CompletableFuture<Void> wipeRelease = rig.port.release(wiped);
@@ -530,10 +530,10 @@ class WorldRefCountTest {
     // ── 卸载失败路径:SEVERE 语义 + 保留目录 + 不阻塞(处置完成) ──────────
 
     @Test
-    void unloadFailureKeepsDirAndStillCompletes(@TempDir Path templates, @TempDir Path copies)
+    void unloadFailureKeepsDirAndStillCompletes(@TempDir Path declarations, @TempDir Path copies)
             throws IOException {
-        layTemplate(templates, "stubborn_s", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
+        layTemplate(declarations, "stubborn_s", "level.dat");
+        Rig rig = Rig.direct(copies);
         List<String> logLines = new java.util.concurrent.CopyOnWriteArrayList<>();
         Logger spy = Logger.getLogger("world-ref-count-unload-fail");
         spy.setUseParentHandlers(false);
@@ -544,8 +544,8 @@ class WorldRefCountTest {
             @Override public void flush() { }
             @Override public void close() { }
         });
-        // 以注入失败日志与失败卸载的端口复测
-        WorldPortImpl failingPort = new WorldPortImpl(rig.loader, templates, copies,
+        // 以注入失败日志与失败卸载的端口复测(★v1.8:构造不再收模板根)
+        WorldPortImpl failingPort = new WorldPortImpl(rig.loader, copies,
                 command -> {
                     ZONE.set("main");
                     try {
@@ -564,7 +564,7 @@ class WorldRefCountTest {
                 }, java.time.Duration.ofSeconds(30), spy);
         rig.loader.unloadResult = false;       // 注入:Bukkit.unloadWorld 返回 false
 
-        MapDefinition target = map("stubborn_s", ResetStrategy.TEMPLATE_RESTORE);
+        MapDefinition target = map(declarations, "stubborn_s", ResetStrategy.TEMPLATE_RESTORE);
         WorldHandle handle = await(failingPort.acquire(target, SESSION));
         Path dir = copies.resolve(handle.instanceName());
         awaitVoid(failingPort.release(handle));       // 卸载失败不阻塞:处置仍完成
@@ -576,7 +576,8 @@ class WorldRefCountTest {
                 "卸载失败应记 SEVERE 并注明保留目录: " + logLines);
     }
 
-    // ── ⑧ 会话销毁 discardSession(★v1.4:复用窗口 = 会话生命周期) ──────
+    // ── ⑧ 会话销毁 discardSession(★v1.4:复用窗口 = 会话生命周期;
+    //    ★v1.8 断言族按新基准重写:复制源 = 声明路径,命名 = 路径派生 id) ──────
 
     /**
      * ⑧a REUSE_DIRTY 主线:释放(模拟切换离开)保留 → 再获取复载不复制(复用语义
@@ -584,10 +585,10 @@ class WorldRefCountTest {
      */
     @Test
     void discardSessionDestroysReusedCopiesAndKeepsReuseSemanticsUntilThen(
-            @TempDir Path templates, @TempDir Path copies) throws IOException {
-        layTemplate(templates, "reuse_d", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition target = map("reuse_d", ResetStrategy.REUSE_DIRTY);
+            @TempDir Path declarations, @TempDir Path copies) throws IOException {
+        layTemplate(declarations, "reuse_d", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition target = map(declarations, "reuse_d", ResetStrategy.REUSE_DIRTY);
 
         // 获取 → 释放(模拟 B5 换图离开):REUSE_DIRTY 归零保留目录
         WorldHandle first = await(rig.port.acquire(target, SESSION));
@@ -616,13 +617,13 @@ class WorldRefCountTest {
 
     /** ⑧b 双图会话:map1 释放(保留)→ map2 在用 → discardSession 两目录全部消失。 */
     @Test
-    void discardSessionDestroysEveryCopyOfATwoMapSession(@TempDir Path templates,
+    void discardSessionDestroysEveryCopyOfATwoMapSession(@TempDir Path declarations,
                                                          @TempDir Path copies) throws IOException {
-        layTemplate(templates, "dual_first", "level.dat");
-        layTemplate(templates, "dual_second", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition firstMap = map("dual_first", ResetStrategy.REUSE_DIRTY);
-        MapDefinition secondMap = map("dual_second", ResetStrategy.REUSE_DIRTY);
+        layTemplate(declarations, "dual_first", "level.dat");
+        layTemplate(declarations, "dual_second", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition firstMap = map(declarations, "dual_first", ResetStrategy.REUSE_DIRTY);
+        MapDefinition secondMap = map(declarations, "dual_second", ResetStrategy.REUSE_DIRTY);
 
         // map1 在用 → 切到 map2(B5 释放 map1,会话活着目录保留);map2 仍持句柄
         WorldHandle onFirst = await(rig.port.acquire(firstMap, SESSION));
@@ -645,10 +646,10 @@ class WorldRefCountTest {
     /** ⑧c TEMPLATE_RESTORE:discardSession 与既有 release 归零处置结论一致(删目录)。 */
     @Test
     void discardSessionConsistentWithReleaseZeroDisposalForTemplateRestore(
-            @TempDir Path templates, @TempDir Path copies) throws IOException {
-        layTemplate(templates, "wipe_both", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition target = map("wipe_both", ResetStrategy.TEMPLATE_RESTORE);
+            @TempDir Path declarations, @TempDir Path copies) throws IOException {
+        layTemplate(declarations, "wipe_both", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition target = map(declarations, "wipe_both", ResetStrategy.TEMPLATE_RESTORE);
 
         // 既有 release 归零处置(同族参考 resetStrategiesDisposeCopiesAccordingly):删目录
         WorldHandle released = await(rig.port.acquire(target, SESSION));
@@ -676,14 +677,15 @@ class WorldRefCountTest {
      */
     @Test
     void dissolveDuringCopyReleasesLateHandleViaOnWorldReadyAndDeletesCopy(
-            @TempDir Path templates, @TempDir Path copies) throws Exception {
+            @TempDir Path declarations, @TempDir Path copies) throws Exception {
         GatedThreadedIo gatedIo = new GatedThreadedIo();
-        Rig rig = new Rig(templates, copies, gatedIo, 30_000L);
+        Rig rig = new Rig(copies, gatedIo, 30_000L);
 
         // 最小会话装配:真会话服务 + 真世界端口(假载器、门闩 IO;回程口直跑)
-        MapRegistry maps = new MapRegistry(templates);
-        MapDefinition mapDef = MapTestKit.registered(maps, templates,
-                map("late_e2e", ResetStrategy.REUSE_DIRTY));
+        // (★v1.8 新基准:注册式声明落盘 + 注册走 MapTestKit,缺省策略即 REUSE_DIRTY)
+        MapRegistry maps = new MapRegistry();
+        MapTestKit.registered(maps, declarations, "late_e2e", Set.of("common"));
+        MapDefinition mapDef = maps.byId("late_e2e").orElseThrow();
         MatchModeRegistry modes = new MatchModeRegistry(id -> OfflineAssembly.cfg());
         modes.register(SwitchHarness.fixedProvider(SwitchHarness.mode("late_m", 0, 100)));
         SessionServiceImpl service = new SessionServiceImpl.Builder()
@@ -736,10 +738,10 @@ class WorldRefCountTest {
     /** ⑧e 幂等:重复销毁无异常、零重复处置;从未获取过的会话销毁亦无害。 */
     @Test
     void discardSessionIsIdempotentAndHarmlessForUnknownSessions(
-            @TempDir Path templates, @TempDir Path copies) throws IOException {
-        layTemplate(templates, "idem_i", "level.dat");
-        Rig rig = Rig.direct(templates, copies);
-        MapDefinition target = map("idem_i", ResetStrategy.REUSE_DIRTY);
+            @TempDir Path declarations, @TempDir Path copies) throws IOException {
+        layTemplate(declarations, "idem_i", "level.dat");
+        Rig rig = Rig.direct(copies);
+        MapDefinition target = map(declarations, "idem_i", ResetStrategy.REUSE_DIRTY);
 
         WorldHandle handle = await(rig.port.acquire(target, SESSION));
         Path dir = copies.resolve(handle.instanceName());

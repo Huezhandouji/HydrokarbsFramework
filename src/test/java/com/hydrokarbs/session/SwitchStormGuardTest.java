@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Timeout;
 
 import com.hydrokarbs.engine.component.MatchModeComponent;
 import com.hydrokarbs.engine.event.SessionEvent;
-import com.hydrokarbs.engine.mode.MatchModeMeta;
 import com.hydrokarbs.engine.session.EndResult;
 import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.MatchModeSelection;
@@ -124,7 +123,9 @@ class SwitchStormGuardTest {
         assertInstanceOf(SwitchResult.Succeeded.class, first.get(2, TimeUnit.SECONDS));
     }
 
-    /** 防护①对自动切换生效:驻留不足时结束请求驱动的自动切换被拒并保留请求;满后经节拍器放行。 */
+    /** 防护①对自动切换生效:驻留不足时结束请求驱动的自动回退被节流回填重试;满后经节拍器放行。
+     *  ★v1.13/31 号:无显式去向的回退带 force 豁免人数下限,但驱动层驻留预检保留
+     *  (铁律 6 节流,防「结束→切回退→再结束」风暴)——本用例即节流的断言面。 */
     @Test
     void autoSwitchWithinDwellIsRejectedThenPassesViaTickerAfterDwell() throws Exception {
         List<String> log = new ArrayList<>();
@@ -132,30 +133,30 @@ class SwitchStormGuardTest {
         specs.put("ender", new ProbeComponent.Spec(log).endAfter(1, EndResult.nowhere()));
         SwitchHarness harness = new SwitchHarness("fb",
                 SwitchHarness.mode("fb", 0, 100),
-                SwitchHarness.mode("base", 0, 100, specs, MatchModeMeta.DefaultTransition.STAY));
+                SwitchHarness.mode("base", 0, 100, specs));
         Session session = readySession(harness);      // 实例 = base(带 ender 组件)
         List<SessionEvent> events = SwitchHarness.recordEvents(session);
 
         harness.ticker.tickAll();                     // ender 第一次 update → 请求结束 → ENDING
         assertEquals(SessionState.ENDING, session.state(), "结束只置位,不立即切");
 
-        harness.ticker.tickAll();                     // 处置拍:驻留 = 切完后的拍数,不足 → 拒
-        assertEquals(SessionState.ENDING, session.state(), "驻留不足,自动切换被拒(请求保留)");
+        harness.ticker.tickAll();                     // 处置拍:驻留 = 切完后的拍数,不足 → 回填重试
+        assertEquals(SessionState.ENDING, session.state(), "驻留不足,回退被节流(结束请求回填保留)");
         assertTrue(events.stream().noneMatch(e -> e instanceof SessionEvent.ModeSwitchStarted),
-                "被拒期间不发起切换");
+                "节流期间不发起回退切换");
 
         for (int i = 0; i < SessionPolicy.DEFAULT_MIN_DWELL_TICKS + 2; i++) {
             session.idleTimers();                     // 推进驻留时钟越过门槛
         }
         String beforeId = session.currentInstance().orElseThrow().id().value();
-        harness.ticker.tickAll();                     // 节拍器驱动:放行发起(A 段挂起)
+        harness.ticker.tickAll();                     // 节拍器驱动:放行发起(回退 force 切换 A 段挂起)
         harness.ticker.tickAll();                     // 节拍器驱动:执行 B 段
         assertTrue(events.stream().anyMatch(e -> e instanceof SessionEvent.ModeSwitchStarted),
-                "驻留满后经节拍器放行自动切换(开始事件)");
+                "驻留满后经节拍器放行回退切换(开始事件)");
         assertTrue(events.stream().anyMatch(e -> e instanceof SessionEvent.ModeSwitchCompleted),
-                "自动切换完成(完成事件)");
+                "回退切换完成(完成事件)");
         assertNotEquals(beforeId, session.currentInstance().orElseThrow().id().value(),
-                "实例已换(放行的是真切换)");
+                "实例已换(放行的是真切换,目标 = 配置的回退 fb)");
     }
 
     /** 防护②后半的机械闸门:不经节拍器栈直接驱动,自动切换拒绝发起(调用栈冻结)。 */
@@ -183,15 +184,21 @@ class SwitchStormGuardTest {
                 "节拍器栈内的处置被放行(状态推进)");
     }
 
-    /** STAY 缺省去向:结束无显式意图 → 原地重开同模式新实例。 */
+    /**
+     * 无显式去向的结束(★v1.13/31 号语义重写,冻结面随 31 号登记修测理由):
+     * 原用例 {@code stayTransitionReopensSameModeAfterDwellViaTicker} 断言
+     * 「STAY 同模式重开」(modeId/fromMode/toMode 均 base)——该语义随
+     * {@code DefaultTransition} 枚举退场而消亡;重写为无显式去向 → 驻留满后
+     * <b>回落配置的回退模式</b>(fb),fromMode=base / toMode=fb、新实例非复用。
+     */
     @Test
-    void stayTransitionReopensSameModeAfterDwellViaTicker() throws Exception {
+    void noIntentEndFallsBackToConfiguredModeAfterDwellViaTicker() throws Exception {
         List<String> log = new ArrayList<>();
         LinkedHashMap<String, MatchModeComponent.Specification<?>> specs = new LinkedHashMap<>();
         specs.put("ender", new ProbeComponent.Spec(log).endAfter(1, EndResult.nowhere()));
         SwitchHarness harness = new SwitchHarness("fb",
                 SwitchHarness.mode("fb", 0, 100),
-                SwitchHarness.mode("base", 0, 100, specs, MatchModeMeta.DefaultTransition.STAY));
+                SwitchHarness.mode("base", 0, 100, specs));
         Session session = readySession(harness);
         List<SessionEvent> events = SwitchHarness.recordEvents(session);
         String firstInstanceId = session.currentInstance().orElseThrow().id().value();
@@ -200,12 +207,12 @@ class SwitchStormGuardTest {
         for (int i = 0; i < SessionPolicy.DEFAULT_MIN_DWELL_TICKS + 2; i++) {
             session.idleTimers();
         }
-        harness.ticker.tickAll();                     // 发起
+        harness.ticker.tickAll();                     // 发起(驻留已满)
         harness.ticker.tickAll();                     // 执行
 
-        // 新实例的同类组件可能立刻再请求结束(那是下一轮防护的输入,不是本用例的命题)——
-        // 本用例断言「STAY 放行的确重开了同模式新实例」
-        assertEquals("base", session.currentInstance().orElseThrow().modeId(), "STAY = 同模式重开");
+        // 回退目标 fb 零组件不会再请求结束——无显式去向的回退链到 fb 为终点
+        assertEquals("fb", session.currentInstance().orElseThrow().modeId(),
+                "无显式去向 → 回落配置的回退模式(31 号;原 STAY 同模式重开语义随枚举退场)");
         assertFalse(session.currentInstance().orElseThrow().id().value().equals(firstInstanceId),
                 "新实例(不是旧实例复用)");
         SessionEvent.ModeSwitchCompleted completed = events.stream()
@@ -213,6 +220,6 @@ class SwitchStormGuardTest {
                 .map(e -> (SessionEvent.ModeSwitchCompleted) e)
                 .findFirst().orElseThrow();
         assertEquals("base", completed.fromMode());
-        assertEquals("base", completed.toMode());
+        assertEquals("fb", completed.toMode());
     }
 }

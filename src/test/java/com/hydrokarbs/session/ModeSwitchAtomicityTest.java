@@ -1,6 +1,7 @@
 package com.hydrokarbs.session;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,8 +34,11 @@ import com.hydrokarbs.engine.session.Handoff;
 import com.hydrokarbs.engine.session.LeaveReason;
 import com.hydrokarbs.engine.session.MatchModeSelection;
 import com.hydrokarbs.engine.session.Session;
+import com.hydrokarbs.engine.session.SessionId;
+import com.hydrokarbs.engine.session.SessionSpec;
 import com.hydrokarbs.engine.session.SessionState;
 import com.hydrokarbs.engine.session.SwitchResult;
+import com.hydrokarbs.mode.empty.EmptyMatchModeFactory;
 import com.hydrokarbs.testkit.FakeWorldPort;
 import com.hydrokarbs.testkit.ProbeComponent;
 import com.hydrokarbs.testkit.TestComponent;
@@ -47,6 +51,11 @@ import com.hydrokarbs.testkit.TestComponent;
  * 绝无中间态残留。附:★6 close 幂等与 ★7 清场逆序在切换路径(B2)重放。
  * ★v1.7:原 A2 能力校验失败路径(capability 缺失拒绝)随能力标签机制全链退场删除
  * (25 号修正案);阶段 A 失败路径覆盖自此为 A1/A3/A4/A5/A6。
+ * ★v1.9(27 号修正案):新增清场断言族(★65)——切换接缝 B3.5(同世界复用先行)/
+ * B5 finally(异图殿后、先于 release)与解散接缝(finally 内先名册后世界、先于
+ * discardSession)的世界清场;离线断言以 FakeWorldPort.sticky(同句柄幂等)+ seamLog
+ * 时序录为前提,World#getPlayers 枚举与 teleport 的平台正确性归 runServer 实测(同
+ * ★17「真服抽查并入 2.5 闭环」分工)。
  */
 @Timeout(30)
 class ModeSwitchAtomicityTest {
@@ -327,6 +336,77 @@ class ModeSwitchAtomicityTest {
                 "回退落位经完成事件告知");
     }
 
+    /** 回退出厂空模式成功(★v1.13/31 号新例):真工厂(SPI 同款)入册作回退目标——
+     *  零组件 + 空 mapTags 通配选图,执行失败后回退落位全路径成功,成员全员成参赛者。 */
+    @Test
+    void factoryShippedEmptyModeServesAsFallbackLanding() throws Exception {
+        List<String> boomLog = new ArrayList<>();
+        LinkedHashMap<String, MatchModeComponent.Specification<?>> boomSpecs = new LinkedHashMap<>();
+        boomSpecs.put("boom", new ProbeComponent.Spec(boomLog).failOnStart("start-boom"));
+        SwitchHarness harness = new SwitchHarness(EmptyMatchModeFactory.MODE_ID,
+                threeComponentMode("base", new ArrayList<>()),
+                SwitchHarness.mode("boommode", 0, 100, boomSpecs));
+        harness.registry.register(new EmptyMatchModeFactory());   // 出厂工厂入册(SPI 半边的离线等价)
+        Session session = harness.createSession("s1", "base");
+        List<SessionEvent> events = SwitchHarness.recordEvents(session);
+        for (int i = 0; i < 3; i++) {
+            harness.service.join(session.id(), UUID.randomUUID());
+        }
+
+        CompletableFuture<SwitchResult> future = harness.service.switchMode(
+                session.id(), forceSel("boommode"), Handoff.empty());
+        harness.ticker.tickAll();
+        harness.ticker.tickAll();
+        harness.ticker.tickAll();
+
+        assertInstanceOf(SwitchResult.Rejected.class, future.get(2, TimeUnit.SECONDS),
+                "原请求以拒绝完结(boommode 生效抛)");
+        MatchModeInstance landed = session.currentInstance().orElseThrow();
+        assertEquals(EmptyMatchModeFactory.MODE_ID, landed.modeId(),
+                "回退落点 = 出厂空模式(零组件实例,31 号)");
+        assertEquals(SessionState.RUNNING, session.state());
+        Set<UUID> rosterUuids = SwitchHarness.rosterUuids(session);
+        assertEquals(rosterUuids,
+                landed.participants().stream().map(p -> p.uuid()).collect(Collectors.toSet()),
+                "出厂空模式实例的参赛者与名册一致(零组件 joinGate 默认 ADMIT)");
+        assertTrue(events.stream().anyMatch(e -> e instanceof SessionEvent.ModeSwitchCompleted completed
+                        && completed.toMode().equals(EmptyMatchModeFactory.MODE_ID)),
+                "回退落位经完成事件告知");
+    }
+
+    /** 首切实例的 B 段失败(★31 号复审 S1 回归):create 挂接的首切回退与 rollback 自身
+     *  的回退不得双重触发——双重时第二发被 beginSwitch 重入守卫拒,误走「回退被拒 →
+     *  SEVERE + 强制解散」(fallback 有效却解散,违需求 1「仅 fallback 无效才解散」)。
+     *  经 create() 发起(首切 future 带回调),与上方 service.switchMode 发起的 B 段
+     *  失败用例互补(彼处 future 无回调,恰绕开本路径——评审指出的测试缺口)。 */
+    @Test
+    void firstSwitchBFailureParksOnFallbackInsteadOfDissolving() throws Exception {
+        List<String> boomLog = new ArrayList<>();
+        LinkedHashMap<String, MatchModeComponent.Specification<?>> boomSpecs = new LinkedHashMap<>();
+        boomSpecs.put("boom", new ProbeComponent.Spec(boomLog).failOnStart("start-boom"));
+        SwitchHarness harness = new SwitchHarness("fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                SwitchHarness.mode("broken-init", 0, 100, boomSpecs));
+        Session session = harness.service.create(
+                new SessionSpec(new SessionId("s1"), "broken-init", List.of(), List.of()));
+        List<SessionEvent> events = SwitchHarness.recordEvents(session);
+        for (int i = 0; i < 3; i++) {
+            harness.service.join(session.id(), UUID.randomUUID());
+        }
+
+        harness.ticker.tickAll();       // 首切执行段:生效抛 → rollback(complete 时仍在 SWITCHING,回调让位)
+        harness.ticker.tickAll();       // rollback 自身的回退落位
+
+        assertEquals(1, harness.service.all().size(), "fallback 有效:会话不解散(S1 曾被误解散)");
+        assertEquals("fb", session.currentInstance().orElseThrow().modeId(), "泊回退模式");
+        assertEquals(SessionState.RUNNING, session.state());
+        assertTrue(events.stream().noneMatch(e -> e instanceof SessionEvent.SessionDissolved),
+                "无解散事件(fallback 有效时不得解散)");
+        assertFalse(harness.logLines.stream().anyMatch(line ->
+                        line.startsWith("SEVERE") && line.contains("回退切换被拒")),
+                "无误报的「回退切换被拒」SEVERE(detail 曾为『切换进行中,重入被拒』): " + harness.logLines);
+    }
+
     // ── 二级回退:回退模式也装配失败 → 解散 ─────────────────────────
 
     @Test
@@ -385,5 +465,121 @@ class ModeSwitchAtomicityTest {
         assertEquals(stopCount, (int) fx.componentLog.stream().filter(l -> l.endsWith(":stop")).count(),
                 "★6 close 幂等(连调多次只清一次)");
         assertEquals("fb", fx.session.currentInstance().orElseThrow().modeId());
+    }
+
+    // ── ★65 世界清场(★v1.9/27 号):切换与解散接缝的清场断言族 ──────────
+    // 全部建在 FakeWorldPort.sticky(同 (map, session) 幂等同句柄,镜像真端口表命中)
+    // 与 seamLog 时序录之上;immediate() 每次新句柄 + 新代理 → 同世界判据恒 false,
+    // B3.5 同世界路径离线不可达(评审 blocker④ 增补)。
+
+    /** 异图切换(m1→m2→m1 往返,显式 mapId 选区):B5 殿后清场每次恰一次、
+     *  from/to 为对应代理世界、时序先于 release。 */
+    @Test
+    void crossMapSwitchClearsOldWorldTowardNewWorldBeforeRelease() throws Exception {
+        List<String> seam = new ArrayList<>();
+        SwitchHarness harness = new SwitchHarness(seam, "fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                threeComponentMode("base", new ArrayList<>()));
+        Fixture fx = new Fixture(harness);
+        // 异图 = 显式 mapId 选区:无 mapId 时 resolveMap 取装载序第一张(m1),与本用例同图
+        fx.harness.service.switchMode(fx.session.id(),
+                new MatchModeSelection("fb", Optional.of("m2"), true), Handoff.empty());
+        fx.harness.ticker.tickAll();
+        fx.harness.ticker.tickAll();
+        fx.harness.service.switchMode(fx.session.id(),
+                new MatchModeSelection("fb", Optional.of("m1"), true), Handoff.empty());
+        fx.harness.ticker.tickAll();
+        fx.harness.ticker.tickAll();
+
+        assertEquals(2, fx.harness.worldClears.size(), "异图切换每次恰一次清场(B5 殿后)");
+        // from/to = 对应代理世界:往返两次的 to/from 互指同一代理引用(m1 世界 ↔ m2 世界)
+        assertSame(fx.harness.worldClears.get(0).to(), fx.harness.worldClears.get(1).from(),
+                "第二次清场的 from = 第一次的 to(m2 世界同一代理引用)");
+        assertSame(fx.harness.worldClears.get(0).from(), fx.harness.worldClears.get(1).to(),
+                "第二次清场的 to = 第一次的 from(m1 世界同一代理引用)");
+        assertEquals(List.of("worldClear", "release", "worldClear", "release"), fx.harness.seamLog,
+                "时序:清场(完成事件之后)先于 release(B5 finally 同缝,§3.7 释放时机)");
+    }
+
+    /** 同图重开(sticky 表命中同句柄):B3.5 清场先行于 B4、from == to(同一代理引用)、
+     *  finally 门闩不重复清(恰 1 非恰 2)。 */
+    @Test
+    void sameWorldReopenClearsBeforeComponentStartExactlyOnce() throws Exception {
+        List<String> seam = new ArrayList<>();
+        LinkedHashMap<String, MatchModeComponent.Specification<?>> specs = new LinkedHashMap<>();
+        specs.put("probe", new ProbeComponent.Spec(new ArrayList<>())
+                .onStart(p -> seam.add("probe:start")));    // 探针生效钩子同写时序表(B4 观测点)
+        SwitchHarness harness = new SwitchHarness(seam, "fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                SwitchHarness.mode("base", 0, 100, specs));
+        Fixture fx = new Fixture(harness);
+        int windowStart = fx.harness.seamLog.size();        // 本切换窗口(首切实例的钩子已在前)
+        fx.harness.service.switchMode(fx.session.id(), forceSel("base"), Handoff.empty());
+        fx.harness.ticker.tickAll();
+        fx.harness.ticker.tickAll();
+
+        assertEquals(1, fx.harness.worldClears.size(),
+                "同图重开清场恰一次(B3.5 先行;finally !sameWorldReuse 门闩不再清)");
+        assertSame(fx.harness.worldClears.get(0).from(), fx.harness.worldClears.get(0).to(),
+                "同世界复用:from == to(sticky 表命中同句柄,同一代理引用)");
+        assertEquals(List.of("worldClear", "probe:start", "release"),
+                fx.harness.seamLog.subList(windowStart, fx.harness.seamLog.size()),
+                "时序:清场(B3.5)先行于 B4 组件生效(probe:start),release 殿后");
+    }
+
+    /** 清场注入抛异常 → 切换仍成功、release 照发、记 WARN(★v1.9 best-effort 不阻塞)。 */
+    @Test
+    void worldClearFailureDoesNotBlockSwitchOrRelease() throws Exception {
+        SwitchHarness harness = SwitchHarness.throwingWorldClear("fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                threeComponentMode("base", new ArrayList<>()));
+        Fixture fx = new Fixture(harness);
+        int releasesBefore = fx.harness.worlds.releaseCount;
+        CompletableFuture<SwitchResult> future = fx.harness.service.switchMode(
+                fx.session.id(), forceSel("fb"), Handoff.empty());
+        fx.harness.ticker.tickAll();
+        fx.harness.ticker.tickAll();
+
+        assertInstanceOf(SwitchResult.Succeeded.class, future.get(2, TimeUnit.SECONDS),
+                "清场抛异常不阻塞:切换仍成功完结");
+        assertEquals("fb", fx.session.currentInstance().orElseThrow().modeId(), "落位不受清场失败影响");
+        assertEquals(releasesBefore + 1, fx.harness.worlds.releaseCount, "清场抛异常 release 照发");
+        assertTrue(fx.harness.logLines.stream().anyMatch(line ->
+                        line.startsWith("WARNING") && line.contains("切换世界清场失败")),
+                "清场失败记 WARN(best-effort,沿用三级兜底语气)");
+    }
+
+    /** 解散清场:heldWorld 非 null → hubWorldClearer 恰一次、先于 discardSession(finally 接缝)。 */
+    @Test
+    void dissolveClearsWorldToHubBeforeDiscardSession() throws Exception {
+        List<String> seam = new ArrayList<>();
+        SwitchHarness harness = new SwitchHarness(seam, "fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                threeComponentMode("base", new ArrayList<>()));
+        Session session = harness.createSession("s1", "base");
+
+        harness.service.dissolve(session.id(), DissolveReason.ADMIN);
+
+        assertEquals(1, harness.hubWorldClears.size(), "解散清场恰一次(先名册后世界)");
+        assertTrue(harness.worldClears.isEmpty(), "解散不走切换清场口(两口分立)");
+        assertEquals(1, harness.worlds.discardCount, "discardSession 恰一次(既有口径不变)");
+        assertTrue(seam.indexOf("hubWorldClear") < seam.indexOf("discardSession"),
+                "时序:世界清场(摘句柄后)先于 discardSession(dissolve finally 接缝)");
+    }
+
+    /** heldWorld 为 null(初始模式未注册 → 首切被拒、句柄从未发放)→ 清场口跳过、无害。 */
+    @Test
+    void dissolveWithoutWorldHandleSkipsClearHarmlessly() throws Exception {
+        SwitchHarness harness = new SwitchHarness("fb",
+                threeComponentMode("fb", new ArrayList<>()),
+                threeComponentMode("base", new ArrayList<>()));
+        Session session = harness.service.create(
+                new SessionSpec(new SessionId("ghost"), "nope", List.of(), List.of()));
+
+        harness.service.dissolve(session.id(), DissolveReason.ADMIN);
+
+        assertTrue(harness.hubWorldClears.isEmpty(), "heldWorld 为 null → 清场口跳过、无害");
+        assertEquals(1, harness.worlds.discardCount, "无句柄也照发 discardSession(既有口径)");
+        assertTrue(harness.service.all().isEmpty(), "会话已从注册表摘除");
     }
 }
